@@ -23,6 +23,10 @@ struct ContentView: View {
     @ObservedObject var batteryModel = BatteryStatusViewModel.shared
     @ObservedObject var brightnessManager = BrightnessManager.shared
     @ObservedObject var volumeManager = VolumeManager.shared
+    // NotchPet: closed-notch live activities (Pomodoro + AI agent sync)
+    @ObservedObject var pomodoroManager = PomodoroManager.shared
+    @ObservedObject var agentStore = AgentSessionStore.shared
+    @ObservedObject var agentCoordinator = AgentSyncCoordinator.shared
     @State private var hoverTask: Task<Void, Never>?
     @State private var isHovering: Bool = false
     @State private var anyDropDebounceTask: Task<Void, Never>?
@@ -70,6 +74,8 @@ struct ContentView: View {
             && coordinator.musicLiveActivityEnabled && !vm.hideOnClosed
         {
             chinWidth += (2 * max(0, vm.effectiveClosedNotchHeight - 12) + 20)
+        } else if showPomodoroActivity || showAgentActivity {
+            chinWidth += (2 * max(0, vm.effectiveClosedNotchHeight - 12) + 20)
         } else if !coordinator.expandingView.show && vm.notchState == .closed
             && (!musicManager.isPlaying && musicManager.isPlayerIdle) && Defaults[.showNotHumanFace]
             && !vm.hideOnClosed
@@ -78,6 +84,23 @@ struct ContentView: View {
         }
 
         return chinWidth
+    }
+
+    // MARK: - NotchPet closed-notch activities (only when music is idle)
+
+    private var musicIsIdle: Bool {
+        !musicManager.isPlaying && musicManager.isPlayerIdle
+    }
+
+    private var showPomodoroActivity: Bool {
+        vm.notchState == .closed && pomodoroManager.isRunning
+            && Defaults[.pomodoroShowInClosedNotch] && !vm.hideOnClosed && musicIsIdle
+    }
+
+    private var showAgentActivity: Bool {
+        vm.notchState == .closed && Defaults[.agentSyncEnabled] && Defaults[.agentShowInClosedNotch]
+            && !vm.hideOnClosed && musicIsIdle
+            && (agentStore.hasActiveWork || agentCoordinator.completionPeek != nil)
     }
 
     var body: some View {
@@ -290,6 +313,12 @@ struct ContentView: View {
                       } else if (!coordinator.expandingView.show || coordinator.expandingView.type == .music) && vm.notchState == .closed && (musicManager.isPlaying || !musicManager.isPlayerIdle) && coordinator.musicLiveActivityEnabled && !vm.hideOnClosed {
                           MusicLiveActivity()
                               .frame(alignment: .center)
+                      } else if showPomodoroActivity {
+                          PomodoroLiveActivity()
+                              .frame(alignment: .center)
+                      } else if showAgentActivity {
+                          AgentLiveActivity()
+                              .frame(alignment: .center)
                       } else if !coordinator.expandingView.show && vm.notchState == .closed && (!musicManager.isPlaying && musicManager.isPlayerIdle) && Defaults[.showNotHumanFace] && !vm.hideOnClosed  {
                           BoringFaceAnimation()
                        } else if vm.notchState == .open {
@@ -349,6 +378,24 @@ struct ContentView: View {
                         NotchHomeView(albumArtNamespace: albumArtNamespace)
                     case .shelf:
                         ShelfView()
+                    case .pomodoro:
+                        PomodoroView()
+                    case .todo:
+                        TodoView()
+                    case .weather:
+                        WeatherView()
+                    case .notes:
+                        NotesView()
+                    case .lyrics:
+                        LyricsView()
+                    case .launcher:
+                        LauncherView()
+                    case .photos:
+                        PhotosView()
+                    case .quickActions:
+                        QuickActionsView()
+                    case .agents:
+                        AgentsTabView()
                     }
                 }
                 .transition(

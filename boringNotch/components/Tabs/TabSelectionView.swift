@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Defaults
 
 struct TabModel: Identifiable {
     let id = UUID()
@@ -14,17 +15,25 @@ struct TabModel: Identifiable {
     let view: NotchViews
 }
 
-let tabs = [
-    TabModel(label: "Home", icon: "house.fill", view: .home),
-    TabModel(label: "Shelf", icon: "tray.fill", view: .shelf)
-]
-
 struct TabSelectionView: View {
     @ObservedObject var coordinator = BoringViewCoordinator.shared
     @Namespace var animation
+
+    /// Home + Shelf (built-ins) followed by the user-enabled NotchPet feature tabs.
+    private var visibleTabs: [TabModel] {
+        var result: [TabModel] = [TabModel(label: "Home", icon: "house.fill", view: .home)]
+        if Defaults[.boringShelf] {
+            result.append(TabModel(label: "Shelf", icon: "tray.fill", view: .shelf))
+        }
+        result.append(contentsOf: NotchPetModuleRegistry.enabledOrdered.map {
+            TabModel(label: $0.label, icon: $0.icon, view: $0.view)
+        })
+        return result
+    }
+
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(tabs) { tab in
+            ForEach(visibleTabs) { tab in
                     TabButton(label: tab.label, icon: tab.icon, selected: coordinator.currentView == tab.view) {
                         withAnimation(.smooth) {
                             coordinator.currentView = tab.view

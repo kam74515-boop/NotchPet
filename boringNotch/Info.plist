@@ -19,6 +19,10 @@
 	<string>https://notchpet.invalid/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>REPLACE_WITH_YOUR_OWN_SPARKLE_ED_PUBLIC_KEY</string>
+	<key>NSLocationUsageDescription</key>
+	<string>NotchPet uses your location to show local weather.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>NotchPet uses your location to show local weather.</string>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict/>

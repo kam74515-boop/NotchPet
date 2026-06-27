@@ -139,6 +139,53 @@ class BoringNotchXPCHelper: NSObject, BoringNotchXPCHelperProtocol {
         reply(false)
     }
 
+    // MARK: - NotchPet: restricted user-file access (~/.claude, ~/.clawd only)
+    // The helper is NOT sandboxed, so it can read/write the user's real home dir.
+    // We hard-restrict access to the two NotchPet directories to prevent a malicious
+    // localhost POST in the main app from coercing arbitrary filesystem access.
+
+    private func isAllowedNotchPetPath(_ path: String) -> Bool {
+        let home = NSHomeDirectory()
+        let std = (path as NSString).standardizingPath
+        let roots = [home + "/.claude", home + "/.clawd"]
+        return roots.contains { std == $0 || std.hasPrefix($0 + "/") }
+    }
+
+    @objc func readUserFile(_ path: String, maxBytes: Int, with reply: @escaping (Data?) -> Void) {
+        let std = (path as NSString).standardizingPath
+        guard isAllowedNotchPetPath(std), let handle = FileHandle(forReadingAtPath: std) else {
+            reply(nil); return
+        }
+        defer { try? handle.close() }
+        if maxBytes <= 0 {
+            reply(try? handle.readToEnd())
+            return
+        }
+        // Bounded tail read for large transcript .jsonl files.
+        let size = (try? handle.seekToEnd()) ?? 0
+        let start = size > UInt64(maxBytes) ? size - UInt64(maxBytes) : 0
+        try? handle.seek(toOffset: start)
+        reply(try? handle.readToEnd())
+    }
+
+    @objc func writeUserFile(_ path: String, data: Data, executable: Bool, with reply: @escaping (Bool) -> Void) {
+        let std = (path as NSString).standardizingPath
+        guard isAllowedNotchPetPath(std) else { reply(false); return }
+        let fm = FileManager.default
+        let dir = (std as NSString).deletingLastPathComponent
+        do {
+            try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            // .atomic writes to a temp file in the same dir then renames into place.
+            try data.write(to: URL(fileURLWithPath: std), options: .atomic)
+            if executable {
+                try fm.setAttributes([.posixPermissions: NSNumber(value: Int16(0o755))], ofItemAtPath: std)
+            }
+            reply(true)
+        } catch {
+            reply(false)
+        }
+    }
+
     // MARK: - Private helpers for DisplayServices / IOKit access
     private func displayServicesGetBrightness(displayID: CGDirectDisplayID, out: inout Float) -> Bool {
         guard let sym = dlsym(DisplayServicesHandle.handle, "DisplayServicesGetBrightness") else { return false }

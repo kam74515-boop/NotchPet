@@ -20,5 +20,9 @@ import Foundation
     func isScreenBrightnessAvailable(with reply: @escaping (Bool) -> Void)
     func currentScreenBrightness(with reply: @escaping (NSNumber?) -> Void)
     func setScreenBrightness(_ value: Float, with reply: @escaping (Bool) -> Void)
+    // NotchPet: out-of-sandbox file access for AI agent sync. The helper MUST
+    // restrict these to paths under ~/.claude and ~/.clawd only.
+    func readUserFile(_ path: String, maxBytes: Int, with reply: @escaping (Data?) -> Void)
+    func writeUserFile(_ path: String, data: Data, executable: Bool, with reply: @escaping (Bool) -> Void)
 }
 

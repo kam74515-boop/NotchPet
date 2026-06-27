@@ -281,6 +281,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
 
+        // MARK: NotchPet feature wiring (notifications, feature managers, AI agent sync)
+        Task { @MainActor in
+            NotificationManager.shared.requestAuthorizationIfNeeded()
+            _ = PomodoroManager.shared
+            _ = TodoManager.shared
+            _ = AppLauncherManager.shared
+            HealthReminderManager.shared.rearm()
+            AgentSyncCoordinator.shared.startIfEnabled()
+        }
+
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(screenConfigurationDidChange),

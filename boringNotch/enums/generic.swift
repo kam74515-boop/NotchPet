@@ -24,9 +24,19 @@ public enum NotchState {
     case open
 }
 
-public enum NotchViews {
+public enum NotchViews: String, CaseIterable {
     case home
     case shelf
+    // NotchPet feature tabs
+    case pomodoro
+    case todo
+    case weather
+    case notes
+    case lyrics
+    case launcher
+    case photos
+    case quickActions
+    case agents
 }
 
 enum SettingsEnum {

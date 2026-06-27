@@ -241,6 +241,35 @@ final class XPCHelperClient: NSObject {
             return false
         }
     }
+
+    // MARK: - NotchPet: user-file access (~/.claude, ~/.clawd) via the non-sandboxed helper
+
+    nonisolated func readUserFile(_ path: String, maxBytes: Int = 0) async -> Data? {
+        do {
+            let service = await MainActor.run { ensureRemoteService() }
+            return try await service.withContinuation { service, continuation in
+                service.readUserFile(path, maxBytes: maxBytes) { data in
+                    continuation.resume(returning: data)
+                }
+            }
+        } catch {
+            return nil
+        }
+    }
+
+    @discardableResult
+    nonisolated func writeUserFile(_ path: String, data: Data, executable: Bool = false) async -> Bool {
+        do {
+            let service = await MainActor.run { ensureRemoteService() }
+            return try await service.withContinuation { service, continuation in
+                service.writeUserFile(path, data: data, executable: executable) { ok in
+                    continuation.resume(returning: ok)
+                }
+            }
+        } catch {
+            return false
+        }
+    }
 }
 
 extension Notification.Name {

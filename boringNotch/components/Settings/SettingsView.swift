@@ -54,6 +54,35 @@ struct SettingsView: View {
                 NavigationLink(value: "Shortcuts") {
                     Label("Shortcuts", systemImage: "keyboard")
                 }
+                Section("NotchPet") {
+                    NavigationLink(value: "AI Agents") {
+                        Label("AI Agents", systemImage: "cpu")
+                    }
+                    NavigationLink(value: "Pomodoro") {
+                        Label("Pomodoro", systemImage: "timer")
+                    }
+                    NavigationLink(value: "To-Do") {
+                        Label("To-Do", systemImage: "checklist")
+                    }
+                    NavigationLink(value: "Notes") {
+                        Label("Notes", systemImage: "note.text")
+                    }
+                    NavigationLink(value: "Weather") {
+                        Label("Weather", systemImage: "cloud.sun.fill")
+                    }
+                    NavigationLink(value: "Photos") {
+                        Label("Photos", systemImage: "photo.on.rectangle")
+                    }
+                    NavigationLink(value: "Launcher") {
+                        Label("Launcher", systemImage: "square.grid.2x2.fill")
+                    }
+                    NavigationLink(value: "Quick Actions") {
+                        Label("Quick Actions", systemImage: "bolt.fill")
+                    }
+                    NavigationLink(value: "Reminders") {
+                        Label("Reminders", systemImage: "bell.badge")
+                    }
+                }
                 // NavigationLink(value: "Extensions") {
                 //     Label("Extensions", systemImage: "puzzlepiece.extension")
                 // }
@@ -87,6 +116,24 @@ struct SettingsView: View {
                     Shelf()
                 case "Shortcuts":
                     Shortcuts()
+                case "AI Agents":
+                    AgentSyncSettingsView()
+                case "Pomodoro":
+                    PomodoroSettingsView()
+                case "To-Do":
+                    TodoSettingsView()
+                case "Notes":
+                    NotesSettingsView()
+                case "Weather":
+                    WeatherSettingsView()
+                case "Photos":
+                    PhotosSettingsView()
+                case "Launcher":
+                    LauncherSettingsView()
+                case "Quick Actions":
+                    QuickActionsSettingsView()
+                case "Reminders":
+                    HealthReminderSettingsView()
                 case "Extensions":
                     GeneralSettings()
                 case "Advanced":
