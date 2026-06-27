@@ -17,7 +17,6 @@ struct TabModel: Identifiable {
 
 struct TabSelectionView: View {
     @ObservedObject var coordinator = BoringViewCoordinator.shared
-    @Namespace var animation
 
     /// Home + Shelf (built-ins) followed by the user-enabled NotchPet feature tabs.
     private var visibleTabs: [TabModel] {
@@ -32,8 +31,11 @@ struct TabSelectionView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(visibleTabs) { tab in
+        // Horizontally scrollable so the row NEVER overflows the notch header,
+        // no matter how many feature tabs the user enables.
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 2) {
+                ForEach(visibleTabs) { tab in
                     TabButton(label: tab.label, icon: tab.icon, selected: coordinator.currentView == tab.view) {
                         withAnimation(.smooth) {
                             coordinator.currentView = tab.view
@@ -42,20 +44,12 @@ struct TabSelectionView: View {
                     .frame(height: 26)
                     .foregroundStyle(tab.view == coordinator.currentView ? .white : .gray)
                     .background {
-                        if tab.view == coordinator.currentView {
-                            Capsule()
-                                .fill(coordinator.currentView == tab.view ? Color(nsColor: .secondarySystemFill) : Color.clear)
-                                .matchedGeometryEffect(id: "capsule", in: animation)
-                        } else {
-                            Capsule()
-                                .fill(coordinator.currentView == tab.view ? Color(nsColor: .secondarySystemFill) : Color.clear)
-                                .matchedGeometryEffect(id: "capsule", in: animation)
-                                .hidden()
-                        }
+                        Capsule()
+                            .fill(tab.view == coordinator.currentView ? Color(nsColor: .secondarySystemFill) : Color.clear)
                     }
+                }
             }
         }
-        .clipShape(Capsule())
     }
 }
 

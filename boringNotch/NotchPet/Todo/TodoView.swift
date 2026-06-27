@@ -20,14 +20,14 @@ struct TodoView: View {
     @FocusState private var addFieldFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 5) {
             header
             addField
             Divider().background(Color.white.opacity(0.08))
             listOrEmpty
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.vertical, 7)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
@@ -94,7 +94,7 @@ struct TodoView: View {
                 .onSubmit(addCurrent)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.vertical, 5)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.white.opacity(0.07))
@@ -127,15 +127,15 @@ struct TodoView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             Image(systemName: "checkmark.circle")
-                .font(.system(size: 22, weight: .light))
+                .font(.system(size: 18, weight: .light))
                 .foregroundStyle(.white.opacity(0.3))
             Text(showCompleted ? "No tasks yet" : "Nothing to do")
-                .font(.system(size: 12))
+                .font(.system(size: 11))
                 .foregroundStyle(.white.opacity(0.45))
             Text("Type above and press return")
-                .font(.system(size: 10))
+                .font(.system(size: 9))
                 .foregroundStyle(.white.opacity(0.3))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -235,7 +235,7 @@ private struct TodoRow: View {
 #if DEBUG
 #Preview {
     TodoView()
-        .frame(width: 600, height: 180)
+        .frame(width: 600, height: 145)
         .background(Color.black)
 }
 #endif

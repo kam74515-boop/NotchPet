@@ -37,7 +37,7 @@ struct LyricsView: View {
                 emptyState
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .foregroundStyle(.white)
     }
 
@@ -171,9 +171,10 @@ private struct SyncedScroller: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 10) {
-                    // Top spacer lets the first line settle to the vertical center.
-                    Color.clear.frame(height: 56)
+                VStack(spacing: 8) {
+                    // Top spacer lets the first line settle near the vertical center of
+                    // the ~145pt notch panel (half the panel height, minus a line).
+                    Color.clear.frame(height: 52)
 
                     ForEach(lines.indices, id: \.self) { i in
                         lineView(at: i)
@@ -182,7 +183,7 @@ private struct SyncedScroller: View {
                     }
 
                     // Bottom spacer mirrors the top so the last line can also center.
-                    Color.clear.frame(height: 56)
+                    Color.clear.frame(height: 52)
                 }
                 .padding(.horizontal, 24)
                 .frame(maxWidth: .infinity)
@@ -204,7 +205,7 @@ private struct SyncedScroller: View {
     private func lineView(at i: Int) -> some View {
         let isCurrent = i == currentIndex
         Text(lines[i].text)
-            .font(.system(size: isCurrent ? 17 : 14,
+            .font(.system(size: isCurrent ? 16 : 13,
                           weight: isCurrent ? .bold : .medium))
             .foregroundStyle(.white.opacity(opacity(for: i)))
             .multilineTextAlignment(.center)

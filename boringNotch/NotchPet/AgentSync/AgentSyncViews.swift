@@ -66,15 +66,15 @@ struct AgentsTabView: View {
     @ObservedObject var coord = AgentSyncCoordinator.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                AgentPetView(state: store.displayState, size: 26)
-                    .frame(width: 30, height: 30)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                AgentPetView(state: store.displayState, size: 18)
+                    .frame(width: 20, height: 20)
                 Text("AI Agents")
-                    .font(.headline)
+                    .font(.system(size: 13, weight: .semibold))
                 Spacer()
                 if coord.running {
-                    Circle().fill(.green).frame(width: 7, height: 7)
+                    Circle().fill(.green).frame(width: 6, height: 6)
                     Text("port \(Int(coord.activePort ?? 0))")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
@@ -89,13 +89,15 @@ struct AgentsTabView: View {
                            text: "No active agents. Start a task in Claude Code.",
                            action: nil)
             } else {
-                ScrollView {
-                    VStack(spacing: 6) {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 5) {
                         ForEach(store.orderedSessions) { session in
                             AgentSessionRow(session: session)
                         }
                     }
+                    .padding(.bottom, 2)
                 }
+                .frame(maxHeight: .infinity)
             }
         }
         .padding(.horizontal, 8)
@@ -144,7 +146,7 @@ struct AgentSessionRow: View {
             }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.vertical, 5)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
     }
 }

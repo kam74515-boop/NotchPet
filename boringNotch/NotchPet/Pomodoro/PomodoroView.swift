@@ -4,7 +4,7 @@
 //
 //  The expanded-notch Pomodoro tab: a circular countdown ring with big MM:SS,
 //  phase label, transport controls, cycle dots and today's completed count.
-//  Sized for the ~560–640pt wide, ~170pt tall expanded content area on black.
+//  Sized for the ~600pt wide, ~145pt tall expanded content area on black.
 //
 
 import SwiftUI
@@ -15,19 +15,19 @@ struct PomodoroView: View {
     @Default(.pomodoroLongBreakInterval) private var longBreakInterval
 
     var body: some View {
-        HStack(spacing: 22) {
+        HStack(spacing: 18) {
             ring
-                .frame(width: 132, height: 132)
+                .frame(width: 96, height: 96)
 
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
                 header
                 controls
                 cycleAndStats
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
@@ -40,26 +40,26 @@ struct PomodoroView: View {
             let tint = manager.phase.tint
             ZStack {
                 Circle()
-                    .stroke(Color.white.opacity(0.08), lineWidth: 10)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 8)
 
                 Circle()
                     .trim(from: 0, to: CGFloat(manager.progress))
                     .stroke(
                         tint,
-                        style: StrokeStyle(lineWidth: 10, lineCap: .round)
+                        style: StrokeStyle(lineWidth: 8, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
                     .shadow(color: tint.opacity(0.5), radius: 4)
                     .animation(.linear(duration: 0.25), value: manager.progress)
 
-                VStack(spacing: 2) {
+                VStack(spacing: 1) {
                     Text(manager.remainingString)
-                        .font(.system(size: 30, weight: .semibold, design: .rounded))
+                        .font(.system(size: 22, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(.white)
                     Label(manager.phase.displayName, systemImage: manager.phase.symbol)
                         .labelStyle(.titleAndIcon)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 9, weight: .medium))
                         .foregroundStyle(tint)
                 }
             }
@@ -93,8 +93,8 @@ struct PomodoroView: View {
             // Primary: start / pause / resume.
             Button(action: manager.toggle) {
                 Image(systemName: primaryIcon)
-                    .font(.system(size: 16, weight: .bold))
-                    .frame(width: 42, height: 32)
+                    .font(.system(size: 15, weight: .bold))
+                    .frame(width: 40, height: 28)
                     .background(manager.phase.tint.opacity(0.9), in: RoundedRectangle(cornerRadius: 9))
                     .foregroundStyle(.white)
             }
@@ -130,8 +130,8 @@ struct PomodoroView: View {
 
     private func controlGlyph(_ name: String) -> some View {
         Image(systemName: name)
-            .font(.system(size: 13, weight: .semibold))
-            .frame(width: 32, height: 32)
+            .font(.system(size: 12, weight: .semibold))
+            .frame(width: 28, height: 28)
             .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
             .foregroundStyle(.white)
     }
@@ -173,7 +173,7 @@ struct PomodoroView: View {
 #if DEBUG
 #Preview {
     PomodoroView()
-        .frame(width: 600, height: 170)
+        .frame(width: 600, height: 145)
         .background(.black)
 }
 #endif

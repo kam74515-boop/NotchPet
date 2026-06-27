@@ -14,13 +14,17 @@ struct WeatherView: View {
     @ObservedObject var manager = WeatherManager.shared
     @Default(.weatherUnit) private var unit
 
+    /// Which forecast the single strip is showing.
+    private enum ForecastMode: String, CaseIterable { case hourly = "Hourly", daily = "Daily" }
+    @State private var forecastMode: ForecastMode = .hourly
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             header
             content
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear { manager.start() }
     }
@@ -38,6 +42,11 @@ struct WeatherView: View {
                 .lineLimit(1)
 
             Spacer(minLength: 4)
+
+            // Compact hourly/daily switch, shown only when forecast data exists.
+            if !manager.hourly.isEmpty || !manager.daily.isEmpty {
+                modeToggle
+            }
 
             if manager.isLoading {
                 ProgressView()
@@ -57,15 +66,42 @@ struct WeatherView: View {
         }
     }
 
+    /// Tiny inline segmented control to switch the forecast strip.
+    private var modeToggle: some View {
+        HStack(spacing: 2) {
+            ForEach(ForecastMode.allCases, id: \.self) { mode in
+                Button {
+                    forecastMode = mode
+                } label: {
+                    Text(mode.rawValue)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(forecastMode == mode ? .white : .white.opacity(0.45))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(forecastMode == mode ? Color.white.opacity(0.16) : .clear)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color.white.opacity(0.06))
+        )
+    }
+
     // MARK: Content router
 
     @ViewBuilder
     private var content: some View {
         if let current = manager.current {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 6) {
                 currentSummary(current)
                 if !manager.hourly.isEmpty || !manager.daily.isEmpty {
-                    forecastStrips
+                    forecastStrip
                 }
             }
         } else if let error = manager.errorMessage {
@@ -78,25 +114,26 @@ struct WeatherView: View {
     // MARK: Current summary
 
     private func currentSummary(_ current: CurrentWeather) -> some View {
-        HStack(alignment: .center, spacing: 14) {
+        HStack(alignment: .center, spacing: 12) {
             Image(systemName: current.symbol)
                 .symbolRenderingMode(.multicolor)
-                .font(.system(size: 34))
-                .frame(width: 44, height: 38)
+                .font(.system(size: 28))
+                .frame(width: 38, height: 32)
 
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 0) {
                 Text(manager.formattedTemperature(current.temperature))
-                    .font(.system(size: 30, weight: .semibold, design: .rounded))
+                    .font(.system(size: 26, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
                 Text(current.condition)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white.opacity(0.7))
+                    .lineLimit(1)
             }
 
             Spacer(minLength: 8)
 
             // Secondary metrics (feels-like, humidity, wind).
-            VStack(alignment: .trailing, spacing: 3) {
+            VStack(alignment: .trailing, spacing: 2) {
                 if let feels = current.apparentTemperature {
                     metric(icon: "thermometer.medium",
                            value: "Feels \(manager.formattedTemperature(feels))")
@@ -124,31 +161,27 @@ struct WeatherView: View {
         }
     }
 
-    // MARK: Forecast strips
+    // MARK: Forecast strip (single, horizontally scrollable, hourly/daily toggle)
 
-    private var forecastStrips: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if !manager.hourly.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        ForEach(manager.hourly) { hour in
-                            HourlyCell(hour: hour, manager: manager)
-                        }
+    @ViewBuilder
+    private var forecastStrip: some View {
+        // Fall back to whichever data is available if the chosen mode is empty.
+        let showHourly = forecastMode == .hourly ? !manager.hourly.isEmpty : manager.daily.isEmpty
+        ScrollView(.horizontal, showsIndicators: false) {
+            if showHourly {
+                HStack(spacing: 10) {
+                    ForEach(manager.hourly) { hour in
+                        HourlyCell(hour: hour, manager: manager)
                     }
-                    .padding(.vertical, 1)
                 }
-            }
-
-            if !manager.daily.isEmpty {
-                Divider().background(Color.white.opacity(0.08))
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(manager.daily) { day in
-                            DailyCell(day: day, manager: manager)
-                        }
+                .padding(.vertical, 1)
+            } else {
+                HStack(spacing: 12) {
+                    ForEach(manager.daily) { day in
+                        DailyCell(day: day, manager: manager)
                     }
-                    .padding(.vertical, 1)
                 }
+                .padding(.vertical, 1)
             }
         }
     }
@@ -189,14 +222,14 @@ private struct HourlyCell: View {
     @ObservedObject var manager: WeatherManager
 
     var body: some View {
-        VStack(spacing: 3) {
+        VStack(spacing: 2) {
             Text(hourLabel)
                 .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(.white.opacity(0.55))
             Image(systemName: hour.symbol)
                 .symbolRenderingMode(.multicolor)
-                .font(.system(size: 15))
-                .frame(height: 18)
+                .font(.system(size: 14))
+                .frame(height: 17)
             Text(manager.roundedTemp(hour.temperature))
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.9))
@@ -227,7 +260,7 @@ private struct DailyCell: View {
     @ObservedObject var manager: WeatherManager
 
     var body: some View {
-        VStack(spacing: 3) {
+        VStack(spacing: 2) {
             Text(dayLabel)
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.6))
@@ -259,7 +292,7 @@ private struct DailyCell: View {
 #if DEBUG
 #Preview {
     WeatherView()
-        .frame(width: 600, height: 180)
+        .frame(width: 600, height: 145)
         .background(Color.black)
 }
 #endif

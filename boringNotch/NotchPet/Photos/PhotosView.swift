@@ -29,7 +29,7 @@ struct PhotosView: View {
                 grid
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         // SwiftUI-native Quick Look: previews the tapped image within the folder set.
         .quickLookPreview($quickLookURL, in: manager.photos.map(\.url))
     }
@@ -37,12 +37,14 @@ struct PhotosView: View {
     // MARK: Grid
 
     private var grid: some View {
-        let cell = CGFloat(thumbnailSize)
+        // Clamp the rendered cell so a full row + header always fits the notch's
+        // ~145pt content height; the grid scrolls vertically for additional rows.
+        let cell = min(CGFloat(thumbnailSize), 88)
         let columns = [GridItem(.adaptive(minimum: cell, maximum: cell), spacing: 8)]
 
         return VStack(spacing: 0) {
             header
-            ScrollView {
+            ScrollView(.vertical, showsIndicators: false) {
                 LazyVGrid(columns: columns, spacing: 8) {
                     ForEach(manager.photos) { photo in
                         PhotoThumbnailCell(photo: photo, edge: cell)

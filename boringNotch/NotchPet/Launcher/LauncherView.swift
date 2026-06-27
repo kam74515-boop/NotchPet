@@ -25,10 +25,10 @@ struct LauncherView: View {
         }
     }
 
-    private let columns = [GridItem(.adaptive(minimum: 64, maximum: 80), spacing: 8)]
+    private let columns = [GridItem(.adaptive(minimum: 50, maximum: 60), spacing: 6)]
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             header
 
             if manager.items.isEmpty {
@@ -37,7 +37,7 @@ struct LauncherView: View {
                 noResultsState
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
-                    LazyVGrid(columns: columns, spacing: 10) {
+                    LazyVGrid(columns: columns, spacing: 6) {
                         ForEach(filtered) { item in
                             iconCell(item)
                         }
@@ -47,8 +47,9 @@ struct LauncherView: View {
                 }
             }
         }
-        .padding(8)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     // MARK: Header (search + add)
@@ -95,7 +96,7 @@ struct LauncherView: View {
     // MARK: Icon cell
 
     private func iconCell(_ item: LauncherItem) -> some View {
-        VStack(spacing: 3) {
+        VStack(spacing: 2) {
             ZStack(alignment: .topTrailing) {
                 Button {
                     manager.launch(item)
@@ -103,10 +104,10 @@ struct LauncherView: View {
                     Image(nsImage: item.icon)
                         .resizable()
                         .interpolation(.high)
-                        .frame(width: 44, height: 44)
-                        .padding(4)
+                        .frame(width: 34, height: 34)
+                        .padding(3)
                         .background(
-                            RoundedRectangle(cornerRadius: 10)
+                            RoundedRectangle(cornerRadius: 8)
                                 .fill(hoveredID == item.id ? Color.white.opacity(0.10) : .clear)
                         )
                 }
@@ -118,7 +119,7 @@ struct LauncherView: View {
                         manager.remove(id: item.id)
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 13))
+                            .font(.system(size: 12))
                             .foregroundStyle(.white, .red)
                             .background(Circle().fill(.black.opacity(0.6)))
                     }
@@ -131,11 +132,11 @@ struct LauncherView: View {
 
             if showLabels {
                 Text(item.name)
-                    .font(.system(size: 9))
+                    .font(.system(size: 8))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .frame(maxWidth: 68)
+                    .frame(maxWidth: 54)
             }
         }
         .contextMenu {

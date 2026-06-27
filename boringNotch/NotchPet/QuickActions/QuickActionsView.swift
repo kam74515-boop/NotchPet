@@ -16,19 +16,22 @@ struct QuickActionsView: View {
     @Default(.quickActionsEnabled) private var enabledMap
     @Default(.quickActionsOrder) private var order
 
-    /// Adaptive tile columns sized for the ~560–640pt expanded notch.
-    private let columns = [GridItem(.adaptive(minimum: 88, maximum: 130), spacing: 10)]
+    /// Adaptive tile columns sized for the ~600pt-wide expanded notch. Smaller
+    /// minimum keeps tiles compact so more fit per row in the short content area.
+    private let columns = [GridItem(.adaptive(minimum: 70, maximum: 110), spacing: 6)]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             header
 
             let actions = manager.visibleActions
             if actions.isEmpty {
                 emptyState
             } else {
+                // Single vertical ScrollView so extra rows scroll internally
+                // instead of being clipped by the notch content area.
                 ScrollView(showsIndicators: false) {
-                    LazyVGrid(columns: columns, spacing: 10) {
+                    LazyVGrid(columns: columns, spacing: 6) {
                         ForEach(actions) { action in
                             ActionTile(action: action) { manager.run(action) }
                         }
@@ -37,7 +40,8 @@ struct QuickActionsView: View {
                 }
             }
         }
-        .padding(10)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
@@ -94,19 +98,19 @@ private struct ActionTile: View {
 
     var body: some View {
         Button(action: onTap) {
-            VStack(spacing: 6) {
+            VStack(spacing: 4) {
                 Image(systemName: action.symbol)
-                    .font(.system(size: 18, weight: .medium))
+                    .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(.white.opacity(0.95))
-                    .frame(height: 22)
+                    .frame(height: 18)
                 Text(action.title)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 58)
+            .frame(height: 46)
             .background(
                 RoundedRectangle(cornerRadius: 10)
                     .fill(Color.white.opacity(hovering ? 0.14 : 0.06))

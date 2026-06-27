@@ -27,9 +27,9 @@ struct NotesView: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             sidebar
-                .frame(width: 180)
+                .frame(width: 170)
 
             Divider()
                 .overlay(Color.white.opacity(0.12))
@@ -37,8 +37,10 @@ struct NotesView: View {
             editor
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(8)
+        // Clamp to the notch's expanded content area so nothing is clipped; both
+        // panes scroll internally rather than overflowing this bounded frame.
+        .frame(maxWidth: .infinity, maxHeight: 145, alignment: .top)
         .onAppear { syncDraftFromManager() }
         // Keep the editor in sync when the selection changes (e.g. clicking a row).
         .onChange(of: manager.selectedID) { _ in syncDraftFromManager() }
@@ -94,10 +96,10 @@ struct NotesView: View {
     }
 
     private var emptyList: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             Spacer()
             Image(systemName: "note.text")
-                .font(.system(size: 22))
+                .font(.system(size: 18))
                 .foregroundStyle(.gray)
             Text("No notes yet")
                 .font(.system(size: 11))
@@ -112,7 +114,7 @@ struct NotesView: View {
             .foregroundStyle(.blue)
             Spacer()
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func noteRow(_ note: ScratchNote) -> some View {
@@ -166,7 +168,7 @@ struct NotesView: View {
         if manager.selectedNote == nil {
             VStack(spacing: 6) {
                 Image(systemName: "square.and.pencil")
-                    .font(.system(size: 26))
+                    .font(.system(size: 20))
                     .foregroundStyle(.gray)
                 Text("Select or create a note")
                     .font(.system(size: 12))
