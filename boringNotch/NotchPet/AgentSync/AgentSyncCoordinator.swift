@@ -11,7 +11,7 @@ import SwiftUI
 import Defaults
 
 extension Defaults.Keys {
-    static let agentSyncEnabled = Key<Bool>("notchpet.agentsync.enabled", default: false)
+    static let agentSyncEnabled = Key<Bool>("notchpet.agentsync.enabled", default: true)
     static let agentCompletionNotification = Key<Bool>("notchpet.agentsync.completionNotification", default: true)
     static let agentCompletionSound = Key<Bool>("notchpet.agentsync.completionSound", default: true)
     static let agentPermissionsEnabled = Key<Bool>("notchpet.agentsync.permissionsEnabled", default: false)

@@ -28,7 +28,7 @@ enum NotchPetModuleRegistry {
         NotchPetModule(id: "weather", label: "Weather", icon: "cloud.sun.fill", view: .weather, defaultEnabled: true),
         NotchPetModule(id: "lyrics", label: "Lyrics", icon: "music.note.list", view: .lyrics, defaultEnabled: true),
         NotchPetModule(id: "launcher", label: "Launcher", icon: "square.grid.2x2.fill", view: .launcher, defaultEnabled: true),
-        NotchPetModule(id: "photos", label: "Photos", icon: "photo.on.rectangle", view: .photos, defaultEnabled: false),
+        NotchPetModule(id: "photos", label: "Photos", icon: "photo.on.rectangle", view: .photos, defaultEnabled: true),
         NotchPetModule(id: "quickActions", label: "Actions", icon: "bolt.fill", view: .quickActions, defaultEnabled: true),
         NotchPetModule(id: "agents", label: "Agents", icon: "cpu", view: .agents, defaultEnabled: true),
     ]

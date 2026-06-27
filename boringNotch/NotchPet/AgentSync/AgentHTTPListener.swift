@@ -76,11 +76,12 @@ struct HTTPRequest {
 }
 
 final class AgentHTTPListener {
-    static let serverIdentity = "clawd-on-desk"
+    static let serverIdentity = "notchpet"
 
     private var listener: NWListener?
     private let queue = DispatchQueue(label: "notchpet.agentsync.listener")
-    private let candidatePorts: [UInt16] = [23333, 23334, 23335, 23336, 23337]
+    // Own port range, distinct from Clawd on Desk (23333–23337), so both can coexist.
+    private let candidatePorts: [UInt16] = [24333, 24334, 24335, 24336, 24337]
     private var portIndex = 0
     private let maxBodyBytes = 512 * 1024
 
@@ -191,8 +192,9 @@ final class AgentHTTPListener {
 
     private func handlePermission(_ req: HTTPRequest, _ conn: NWConnection) {
         guard let onPermission else {
-            // Permission bubbles disabled → close so Claude Code falls back to its terminal prompt.
-            respond(conn, status: "200 OK", json: ["behavior": "wait"])
+            // Permission bubbles disabled → empty 200 means "no decision", so Claude Code
+            // falls back to its own (terminal) permission flow.
+            respond(conn, status: "200 OK", json: [:])
             return
         }
         let obj = jsonObject(req.body) ?? [:]
@@ -204,7 +206,14 @@ final class AgentHTTPListener {
         Task { @MainActor in
             onPermission(payload) { [weak self] decision in
                 self?.queue.async {
-                    self?.respond(conn, status: "200 OK", json: ["behavior": decision.rawValue])
+                    // Official Claude Code PermissionRequest hook response shape.
+                    let mapped = decision == .allow ? "allow" : (decision == .deny ? "deny" : "ask")
+                    self?.respond(conn, status: "200 OK", json: [
+                        "hookSpecificOutput": [
+                            "hookEventName": "PermissionRequest",
+                            "permissionDecision": mapped,
+                        ],
+                    ])
                 }
             }
         }

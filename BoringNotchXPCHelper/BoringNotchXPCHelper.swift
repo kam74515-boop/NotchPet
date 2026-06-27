@@ -147,7 +147,7 @@ class BoringNotchXPCHelper: NSObject, BoringNotchXPCHelperProtocol {
     private func isAllowedNotchPetPath(_ path: String) -> Bool {
         let home = NSHomeDirectory()
         let std = (path as NSString).standardizingPath
-        let roots = [home + "/.claude", home + "/.clawd"]
+        let roots = [home + "/.claude", home + "/.clawd", home + "/.notchpet"]
         return roots.contains { std == $0 || std.hasPrefix($0 + "/") }
     }
 

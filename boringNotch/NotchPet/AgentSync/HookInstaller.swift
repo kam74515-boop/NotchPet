@@ -26,12 +26,15 @@ struct HookInstallResult {
 }
 
 enum HookInstaller {
-    static let marker = "notch-agent-hook.sh"
+    static let marker = "notchpet-hook.sh"
+    static let legacyMarkers = ["notch-agent-hook.sh"]
 
     static var home: String { notchPetRealHome() }
     static var claudeSettingsPath: String { home + "/.claude/settings.json" }
-    static var hookScriptPath: String { home + "/.clawd/notch-agent-hook.sh" }
-    static var runtimeConfigPath: String { home + "/.clawd/runtime.json" }
+    // NotchPet uses its OWN dir + port range so it never collides with a real
+    // Clawd on Desk install (which owns ~/.clawd/runtime.json and ports 23333–23337).
+    static var hookScriptPath: String { home + "/.notchpet/notchpet-hook.sh" }
+    static var runtimeConfigPath: String { home + "/.notchpet/runtime.json" }
 
     /// Command-hook lifecycle events (dumb pipe: event name passed as argv[1]).
     static let commandEvents = [
@@ -45,14 +48,14 @@ enum HookInstaller {
     #!/bin/sh
     # NotchPet agent hook — forwards Claude Code hook events to the local NotchPet listener.
     # argv[1] = EventName; stdin = the hook JSON payload. Fire-and-forget (never blocks the agent).
-    PORT=$(plutil -extract port raw "$HOME/.clawd/runtime.json" 2>/dev/null || echo 23333)
+    PORT=$(plutil -extract port raw "$HOME/.notchpet/runtime.json" 2>/dev/null || echo 24333)
     exec curl -s -m 2 -X POST "http://127.0.0.1:$PORT/state?event=$1" \\
       -H 'Content-Type: application/json' --data-binary @- >/dev/null 2>&1
     """
 
     /// Write the runtime port file (so the hook script can find the listener).
     static func writeRuntime(port: UInt16) async {
-        let json: [String: Any] = ["app": "clawd-on-desk", "port": Int(port)]
+        let json: [String: Any] = ["app": "notchpet", "port": Int(port)]
         if let data = try? JSONSerialization.data(withJSONObject: json) {
             await XPCHelperClient.shared.writeUserFile(runtimeConfigPath, data: data)
         }
@@ -94,10 +97,12 @@ enum HookInstaller {
                 groups = NSMutableArray()
                 hooks[event] = groups
             }
-            if !groupsContainMarker(groups) {
-                groups.add(commandGroup(for: event))
-                added += 1
-            }
+            // Remove any prior NotchPet entry (incl. legacy ~/.clawd path) so we never
+            // duplicate or leave a stale wrong-path hook, then add a fresh one. This does
+            // NOT touch a real Clawd on Desk install's clawd-hook.js entries.
+            stripOurHooks(from: groups)
+            groups.add(commandGroup(for: event))
+            added += 1
         }
 
         // 3) Permission HTTP hook (only when bubbles are enabled).
@@ -157,7 +162,8 @@ enum HookInstaller {
         [
             "matcher": "",
             "hooks": [
-                ["type": "command", "command": "\(hookScriptPath) \(event)", "timeout": 5],
+                // async:true → fire-and-forget, never blocks the agent's tool calls.
+                ["type": "command", "command": "\(hookScriptPath) \(event)", "timeout": 5, "async": true],
             ],
         ]
     }
@@ -171,8 +177,10 @@ enum HookInstaller {
         ]
     }
 
-    private static func groupsContainMarker(_ groups: NSMutableArray) -> Bool {
-        groups.compactMap { $0 as? NSDictionary }.contains { groupDictContainsOurHook($0) }
+    private static func stripOurHooks(from groups: NSMutableArray) {
+        let survivors = groups.compactMap { $0 as? NSDictionary }.filter { !groupDictContainsOurHook($0) }
+        groups.removeAllObjects()
+        groups.addObjects(from: survivors)
     }
 
     private static func groupsContainPermissionHook(_ groups: NSMutableArray) -> Bool {
@@ -184,8 +192,10 @@ enum HookInstaller {
 
     private static func groupDictContainsOurHook(_ dict: NSDictionary) -> Bool {
         guard let inner = dict["hooks"] as? [[String: Any]] else { return false }
-        return inner.contains {
-            (($0["command"] as? String)?.contains(marker) == true)
+        let allMarkers = [marker] + legacyMarkers
+        return inner.contains { hook in
+            guard let cmd = hook["command"] as? String else { return false }
+            return allMarkers.contains { cmd.contains($0) }
         }
     }
 }
