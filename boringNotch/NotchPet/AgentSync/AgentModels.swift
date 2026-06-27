@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import AppKit
 
 /// Animation/display states, mirroring clawd's state set.
 enum AgentState: String, Codable {
@@ -213,5 +214,36 @@ enum AgentKind {
         case "qwen", "qwen-code": return .indigo
         default: return .teal
         }
+    }
+
+    /// Bundled brand-icon filename (reused from clawd-on-desk's agent icons), if any.
+    static func iconFileName(_ id: String) -> String? {
+        switch id {
+        case "claude-code": return "claude-code"
+        case "codex": return "codex"
+        case "cursor", "cursor-agent": return "cursor-agent"
+        case "gemini", "gemini-cli": return "gemini-cli"
+        case "qwen", "qwen-code": return "qwen-code"
+        case "opencode": return "opencode"
+        case "codebuddy": return "codebuddy"
+        case "copilot", "copilot-cli": return "copilot-cli"
+        case "kiro", "kiro-cli": return "kiro-cli"
+        case "kimi", "kimi-cli": return "kimi-cli"
+        case "codewhale": return "codewhale"
+        case "qoder": return "qoder"
+        case "reasonix": return "reasonix"
+        case "pi": return "pi"
+        case "openclaw": return "openclaw"
+        case "hermes": return "hermes"
+        case "antigravity", "antigravity-cli": return "antigravity-cli"
+        default: return nil
+        }
+    }
+
+    /// The real tool logo (bundled PNG), or nil to fall back to an SF Symbol.
+    static func image(_ id: String) -> NSImage? {
+        guard let name = iconFileName(id),
+              let url = Bundle.main.url(forResource: name, withExtension: "png") else { return nil }
+        return NSImage(contentsOf: url)
     }
 }

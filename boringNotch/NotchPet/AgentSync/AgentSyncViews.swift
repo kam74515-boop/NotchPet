@@ -134,13 +134,24 @@ struct AgentSessionRow: View {
             // Status dot (blue = active, green = done, red = error, gray = idle).
             Circle().fill(dotColor).frame(width: 8, height: 8)
 
-            // Which software this task belongs to.
-            ZStack {
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(AgentKind.tint(session.agentId).opacity(0.22))
-                Image(systemName: AgentKind.symbol(session.agentId))
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(AgentKind.tint(session.agentId))
+            // Which software this task belongs to — real tool logo (from clawd's icons),
+            // falling back to a tinted SF Symbol.
+            Group {
+                if let logo = AgentKind.image(session.agentId) {
+                    Image(nsImage: logo)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                        .clipShape(RoundedRectangle(cornerRadius: 5))
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(AgentKind.tint(session.agentId).opacity(0.22))
+                        Image(systemName: AgentKind.symbol(session.agentId))
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(AgentKind.tint(session.agentId))
+                    }
+                }
             }
             .frame(width: 22, height: 22)
             .help(AgentKind.name(session.agentId))
