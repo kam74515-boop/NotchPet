@@ -119,33 +119,72 @@ struct AgentSessionRow: View {
     let session: AgentSession
     @ObservedObject var store = AgentSessionStore.shared
 
+    private var dotColor: Color {
+        switch session.state {
+        case .working, .thinking, .juggling, .sweeping, .carrying: return .blue
+        case .attention: return .green
+        case .error: return .red
+        case .notification: return .orange
+        case .idle, .sleeping: return .secondary
+        }
+    }
+
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: session.state.symbol)
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(session.state.tint)
-                .frame(width: 22)
+            // Status dot (blue = active, green = done, red = error, gray = idle).
+            Circle().fill(dotColor).frame(width: 8, height: 8)
+
+            // Which software this task belongs to.
+            ZStack {
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(AgentKind.tint(session.agentId).opacity(0.22))
+                Image(systemName: AgentKind.symbol(session.agentId))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(AgentKind.tint(session.agentId))
+            }
+            .frame(width: 22, height: 22)
+            .help(AgentKind.name(session.agentId))
+
             VStack(alignment: .leading, spacing: 1) {
-                Text(session.title).font(.system(size: 12, weight: .medium)).lineLimit(1)
-                Text(session.state.label).font(.system(size: 10)).foregroundStyle(.secondary)
+                Text(session.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1).truncationMode(.tail)
+                Text("\(AgentKind.name(session.agentId)) · \(session.state.label)")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            Spacer()
-            if let pct = session.contextPercent {
-                Text("\(Int(pct))%").font(.system(size: 10)).foregroundStyle(.secondary)
-            }
-            if session.requiresAck {
-                Button {
-                    store.ack(session.id)
-                } label: {
-                    Image(systemName: "checkmark").font(.system(size: 10))
-                }
-                .buttonStyle(.borderless)
-                .help("Mark as seen")
-            }
+
+            Spacer(minLength: 6)
+
+            badge
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
+        .contentShape(Rectangle())
+        .onTapGesture { if session.requiresAck { store.ack(session.id) } }
+    }
+
+    @ViewBuilder
+    private var badge: some View {
+        if session.requiresAck {
+            pill(text: "Done", color: .green)
+        } else if session.state == .error {
+            pill(text: "Error", color: .red)
+        } else if let pct = session.contextPercent {
+            Text("\(Int(pct))%")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func pill(text: LocalizedStringKey, color: Color) -> some View {
+        Text(text)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 7).padding(.vertical, 2)
+            .background(Capsule().fill(color.opacity(0.18)))
     }
 }
 
@@ -197,6 +236,25 @@ struct AgentSyncSettingsView: View {
                     set: { coord.setPetEnabled($0) }))
                 Text("The notch stays clean — it only pops a brief status when a task finishes, errors, or needs your input. The crab lives on the Agents tab.")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("Coding tools") {
+                Text("NotchPet reuses clawd-on-desk's ready-made installers to capture tasks from many CLIs/IDEs. Toggle which to hook (Claude Code is always on above).")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(MultiAgentInstaller.agents) { a in
+                    Toggle(AgentKind.name(a.id), isOn: Binding(
+                        get: { Defaults[.enabledCodingAgents][a.id] ?? a.defaultEnabled },
+                        set: { on in
+                            var m = Defaults[.enabledCodingAgents]
+                            m[a.id] = on
+                            Defaults[.enabledCodingAgents] = m
+                            Task {
+                                if on { _ = await MultiAgentInstaller.install(a) }
+                                else { _ = await MultiAgentInstaller.uninstall(a) }
+                            }
+                        }))
+                }
+                Button("Reinstall all tool hooks") { coord.reinstallAllAgents() }
             }
 
             Section("Permissions (advanced)") {

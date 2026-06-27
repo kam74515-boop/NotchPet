@@ -33,16 +33,16 @@ final class AgentSessionStore: ObservableObject {
         sessions.values.contains { [.thinking, .working, .juggling, .sweeping, .notification].contains($0.state) }
     }
 
-    /// Sessions sorted for the Agents tab (priority then recency).
+    /// Sessions sorted for the Agents tab: just-completed (unacked) pinned to the very
+    /// top, then everything else newest-first.
     var orderedSessions: [AgentSession] {
         sessions.values.sorted {
-            $0.state.priority != $1.state.priority
-                ? $0.state.priority > $1.state.priority
-                : $0.updatedAt > $1.updatedAt
+            if $0.requiresAck != $1.requiresAck { return $0.requiresAck && !$1.requiresAck }
+            return $0.updatedAt > $1.updatedAt
         }
     }
 
-    func ingest(event: String, payload: AgentEvent) {
+    func ingest(event: String, payload: AgentEvent, agentIdOverride: String? = nil) {
         let sid = payload.sessionId ?? "default"
         let newState = AgentStateMachine.state(forEvent: event, payload: payload)
 
@@ -54,7 +54,7 @@ final class AgentSessionStore: ObservableObject {
 
         var s = sessions[sid] ?? AgentSession(
             id: sid,
-            agentId: payload.agentId ?? "claude-code",
+            agentId: agentIdOverride ?? payload.agentId ?? "claude-code",
             state: .idle,
             title: "",
             contextPercent: nil,
@@ -65,7 +65,7 @@ final class AgentSessionStore: ObservableObject {
             requiresAck: false
         )
 
-        s.agentId = payload.agentId ?? s.agentId
+        s.agentId = agentIdOverride ?? payload.agentId ?? s.agentId
         if let t = payload.sessionTitle, !t.isEmpty { s.title = t }
         if s.title.isEmpty {
             s.title = (payload.cwd as NSString?)?.lastPathComponent ?? "Claude Code"

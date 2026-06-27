@@ -174,10 +174,11 @@ final class AgentHTTPListener {
 
         case ("POST", "/state"):
             let eventName = req.query["event"] ?? (jsonObject(req.body)?["event"] as? String) ?? ""
+            let agentId = req.query["agent"]
             if let event = try? JSONDecoder().decode(AgentEvent.self, from: req.body) {
                 Task { @MainActor in
                     AgentSessionStore.shared.ingest(event: eventName.isEmpty ? (event.event ?? "") : eventName,
-                                                    payload: event)
+                                                    payload: event, agentIdOverride: agentId)
                 }
             }
             respond(conn, status: "200 OK", json: [:])

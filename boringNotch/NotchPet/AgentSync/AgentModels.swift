@@ -48,16 +48,16 @@ enum AgentState: String, Codable {
 
     var label: String {
         switch self {
-        case .idle: return "Idle"
-        case .thinking: return "Thinking"
-        case .working: return "Working"
-        case .juggling: return "Subagents"
-        case .sweeping: return "Compacting"
-        case .error: return "Error"
-        case .attention: return "Done"
-        case .notification: return "Needs you"
-        case .carrying: return "Working"
-        case .sleeping: return "Asleep"
+        case .idle: return String(localized: "Idle")
+        case .thinking: return String(localized: "Thinking")
+        case .working: return String(localized: "Working")
+        case .juggling: return String(localized: "Subagents")
+        case .sweeping: return String(localized: "Compacting")
+        case .error: return String(localized: "Error")
+        case .attention: return String(localized: "Done")
+        case .notification: return String(localized: "Needs you")
+        case .carrying: return String(localized: "Working")
+        case .sleeping: return String(localized: "Asleep")
         }
     }
 
@@ -168,6 +168,50 @@ enum AgentStateMachine {
         case "PostCompact": return (payload.trigger == "manual") ? .idle : .thinking
         case "Notification", "Elicitation": return .notification
         default: return .idle
+        }
+    }
+}
+
+/// Identity (name / icon / color) for each coding tool, so the Agents list shows which
+/// software a session belongs to.
+enum AgentKind {
+    static func name(_ id: String) -> String {
+        switch id {
+        case "claude-code": return "Claude Code"
+        case "codex": return "Codex"
+        case "cursor", "cursor-agent": return "Cursor"
+        case "copilot", "copilot-cli": return "Copilot"
+        case "gemini", "gemini-cli": return "Gemini"
+        case "qwen", "qwen-code": return "Qwen"
+        case "opencode": return "opencode"
+        case "kiro", "kiro-cli": return "Kiro"
+        case "codebuddy": return "CodeBuddy"
+        default: return id.isEmpty ? "Agent" : id
+        }
+    }
+
+    static func symbol(_ id: String) -> String {
+        switch id {
+        case "claude-code": return "sparkle"
+        case "codex": return "chevron.left.forwardslash.chevron.right"
+        case "cursor", "cursor-agent": return "cursorarrow.rays"
+        case "copilot", "copilot-cli": return "person.2.fill"
+        case "gemini", "gemini-cli": return "diamond.fill"
+        case "qwen", "qwen-code": return "q.circle.fill"
+        case "opencode": return "curlybraces"
+        default: return "cpu"
+        }
+    }
+
+    static func tint(_ id: String) -> Color {
+        switch id {
+        case "claude-code": return Color(red: 0.85, green: 0.45, blue: 0.25) // Claude orange
+        case "codex": return Color(red: 0.10, green: 0.65, blue: 0.45)        // OpenAI green
+        case "cursor", "cursor-agent": return .blue
+        case "copilot", "copilot-cli": return .gray
+        case "gemini", "gemini-cli": return .purple
+        case "qwen", "qwen-code": return .indigo
+        default: return .teal
         }
     }
 }

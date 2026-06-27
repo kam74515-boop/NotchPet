@@ -186,6 +186,41 @@ class BoringNotchXPCHelper: NSObject, BoringNotchXPCHelperProtocol {
         }
     }
 
+    @objc func extractNotchpetArchive(_ archivePath: String, toDir: String, with reply: @escaping (Bool) -> Void) {
+        let a = (archivePath as NSString).standardizingPath
+        let d = (toDir as NSString).standardizingPath
+        guard isAllowedNotchPetPath(a), isAllowedNotchPetPath(d) else { reply(false); return }
+        try? FileManager.default.createDirectory(atPath: d, withIntermediateDirectories: true)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+        p.arguments = ["-xzf", a, "-C", d]
+        do { try p.run(); p.waitUntilExit(); reply(p.terminationStatus == 0) }
+        catch { reply(false) }
+    }
+
+    @objc func runNotchpetNode(_ scriptPath: String, args: [String], with reply: @escaping (Int32, String) -> Void) {
+        let s = (scriptPath as NSString).standardizingPath
+        guard isAllowedNotchPetPath(s) else { reply(-1, "path not allowed"); return }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        p.arguments = ["node", s] + args
+        var env = ProcessInfo.processInfo.environment
+        let extra = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+        env["PATH"] = (env["PATH"].map { $0 + ":" + extra }) ?? extra
+        p.environment = env
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = pipe
+        do {
+            try p.run()
+            p.waitUntilExit()
+            let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            reply(p.terminationStatus, out)
+        } catch {
+            reply(-1, "\(error)")
+        }
+    }
+
     // MARK: - Private helpers for DisplayServices / IOKit access
     private func displayServicesGetBrightness(displayID: CGDirectDisplayID, out: inout Float) -> Bool {
         guard let sym = dlsym(DisplayServicesHandle.handle, "DisplayServicesGetBrightness") else { return false }

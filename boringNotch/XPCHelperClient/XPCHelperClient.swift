@@ -270,6 +270,34 @@ final class XPCHelperClient: NSObject {
             return false
         }
     }
+
+    @discardableResult
+    nonisolated func extractNotchpetArchive(_ archivePath: String, toDir: String) async -> Bool {
+        do {
+            let service = await MainActor.run { ensureRemoteService() }
+            return try await service.withContinuation { service, continuation in
+                service.extractNotchpetArchive(archivePath, toDir: toDir) { ok in
+                    continuation.resume(returning: ok)
+                }
+            }
+        } catch {
+            return false
+        }
+    }
+
+    @discardableResult
+    nonisolated func runNotchpetNode(_ scriptPath: String, args: [String]) async -> (Int32, String) {
+        do {
+            let service = await MainActor.run { ensureRemoteService() }
+            return try await service.withContinuation { service, continuation in
+                service.runNotchpetNode(scriptPath, args: args) { code, out in
+                    continuation.resume(returning: (code, out))
+                }
+            }
+        } catch {
+            return (-1, "\(error)")
+        }
+    }
 }
 
 extension Notification.Name {

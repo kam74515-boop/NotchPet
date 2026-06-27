@@ -49,7 +49,7 @@ enum HookInstaller {
     # NotchPet agent hook — forwards Claude Code hook events to the local NotchPet listener.
     # argv[1] = EventName; stdin = the hook JSON payload. Fire-and-forget (never blocks the agent).
     PORT=$(plutil -extract port raw "$HOME/.notchpet/runtime.json" 2>/dev/null || echo 24333)
-    exec curl -s -m 2 -X POST "http://127.0.0.1:$PORT/state?event=$1" \\
+    exec curl -s -m 2 -X POST "http://127.0.0.1:$PORT/state?event=$1&agent=claude-code" \\
       -H 'Content-Type: application/json' --data-binary @- >/dev/null 2>&1
     """
 

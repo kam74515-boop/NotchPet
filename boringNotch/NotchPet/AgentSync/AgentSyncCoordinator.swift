@@ -64,6 +64,14 @@ final class AgentSyncCoordinator: ObservableObject {
         listener.start()
         // The pet lives INSIDE the notch (see AgentLiveActivity / AgentPetView),
         // so there is no floating desktop window to show/hide here.
+
+        // Install hooks for all the other coding tools (Codex/Cursor/Gemini/…) via
+        // clawd-on-desk's vendored installers (once). Claude Code is handled above.
+        Task { await MultiAgentInstaller.installIfNeeded() }
+    }
+
+    func reinstallAllAgents() {
+        Task { await MultiAgentInstaller.installEnabled() }
     }
 
     func stop() {

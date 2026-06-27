@@ -26094,6 +26094,36 @@
           }
         }
       }
+    },
+    "Coding tools": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编程工具"
+          }
+        }
+      }
+    },
+    "Reinstall all tool hooks": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新安装所有工具钩子"
+          }
+        }
+      }
+    },
+    "NotchPet reuses clawd-on-desk's ready-made installers to capture tasks from many CLIs/IDEs. Toggle which to hook (Claude Code is always on above).": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NotchPet 复用 clawd-on-desk 现成的安装器，从多种 CLI/IDE 捕获任务。可逐个开关（Claude Code 在上方始终开启）。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
