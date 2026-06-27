@@ -88,6 +88,9 @@ final class AgentSessionStore: ObservableObject {
             AgentSyncCoordinator.shared.handleCompletion(s)
         } else if newState == .error {
             AgentSyncCoordinator.shared.handleError(s)
+        } else if newState == .notification {
+            // Agent needs the user (permission prompt / AskUserQuestion / clarification).
+            AgentSyncCoordinator.shared.handleClarification(s)
         }
     }
 

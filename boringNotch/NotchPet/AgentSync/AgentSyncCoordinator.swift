@@ -119,6 +119,18 @@ final class AgentSyncCoordinator: ObservableObject {
 
     func handleError(_ s: AgentSession) { flashPeek(s) }
 
+    func handleClarification(_ s: AgentSession) {
+        if Defaults[.agentCompletionNotification] {
+            NotificationManager.shared.schedule(
+                id: "notchpet.agent.ask.\(s.id)",
+                title: "🟠 \(s.title)",
+                body: "Needs your input.",
+                after: 0.1,
+                sound: Defaults[.agentCompletionSound])
+        }
+        flashPeek(s)
+    }
+
     private func flashPeek(_ s: AgentSession) {
         guard Defaults[.agentShowInClosedNotch] else { return }
         completionPeek = s

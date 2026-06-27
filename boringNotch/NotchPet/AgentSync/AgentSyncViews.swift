@@ -24,16 +24,12 @@ struct AgentLiveActivity: View {
 
         HStack(spacing: 0) {
             HStack {
-                if Defaults[.agentPetEnabled] {
-                    AgentPetView(state: state, size: max(12, side - 2))
-                        .frame(width: side, height: side)
-                } else {
-                    Image(systemName: state.symbol)
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(state.tint)
-                        .font(.system(size: max(10, side - 4)))
-                        .frame(width: side, height: side)
-                }
+                // Clean status glyph (✓ done / 🔔 needs-you / ⚠ error) — no persistent pet.
+                Image(systemName: state.symbol)
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(state.tint)
+                    .font(.system(size: max(10, side - 4)))
+                    .frame(width: side, height: side)
             }
 
             Rectangle()
@@ -68,8 +64,10 @@ struct AgentsTabView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                AgentPetView(state: store.displayState, size: 18)
-                    .frame(width: 20, height: 20)
+                if Defaults[.agentPetEnabled] {
+                    AgentPetView(state: store.displayState, size: 18)
+                        .frame(width: 20, height: 20)
+                }
                 Text("AI Agents")
                     .font(.system(size: 13, weight: .semibold))
                 Spacer()
@@ -194,10 +192,10 @@ struct AgentSyncSettingsView: View {
             }
 
             Section("Pet") {
-                Toggle("Show reactive pet in the notch", isOn: Binding(
+                Toggle("Show the crab on the Agents page", isOn: Binding(
                     get: { petEnabled },
                     set: { coord.setPetEnabled($0) }))
-                Text("A little crab inside the notch reacts to your AI agents' state. Turn off to show a minimal status icon instead.")
+                Text("The notch stays clean — it only pops a brief status when a task finishes, errors, or needs your input. The crab lives on the Agents tab.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 

@@ -69,12 +69,14 @@ struct ContentView: View {
             && vm.notchState == .closed && Defaults[.showPowerStatusNotifications]
         {
             chinWidth = 640
+        } else if showAgentPeek {
+            chinWidth += (2 * max(0, vm.effectiveClosedNotchHeight - 12) + 20)
         } else if (!coordinator.expandingView.show || coordinator.expandingView.type == .music)
             && vm.notchState == .closed && (musicManager.isPlaying || !musicManager.isPlayerIdle)
             && coordinator.musicLiveActivityEnabled && !vm.hideOnClosed
         {
             chinWidth += (2 * max(0, vm.effectiveClosedNotchHeight - 12) + 20)
-        } else if showPomodoroActivity || showAgentActivity {
+        } else if showPomodoroActivity {
             chinWidth += (2 * max(0, vm.effectiveClosedNotchHeight - 12) + 20)
         } else if !coordinator.expandingView.show && vm.notchState == .closed
             && (!musicManager.isPlaying && musicManager.isPlayerIdle) && Defaults[.showNotHumanFace]
@@ -97,12 +99,12 @@ struct ContentView: View {
             && Defaults[.pomodoroShowInClosedNotch] && !vm.hideOnClosed && musicIsIdle
     }
 
-    // When AI sync is on and music isn't using the closed notch, the clawd pet lives in
-    // the notch — idle crab when nothing's happening, reacting when an agent is active.
-    // AgentLiveActivity lays out around the physical notch cutout (left strip / right strip).
-    private var showAgentActivity: Bool {
-        vm.notchState == .closed && Defaults[.agentSyncEnabled] && Defaults[.agentShowInClosedNotch]
-            && !vm.hideOnClosed && musicIsIdle
+    // No persistent indicator. The closed notch only pops a transient agent peek when a
+    // task COMPLETES (or errors) or needs CLARIFICATION — i.e. while a completionPeek is
+    // active. It lays out around the physical notch cutout (left strip / right strip).
+    private var showAgentPeek: Bool {
+        vm.notchState == .closed && !vm.hideOnClosed
+            && Defaults[.agentShowInClosedNotch] && agentCoordinator.completionPeek != nil
     }
 
     var body: some View {
@@ -312,14 +314,14 @@ struct ContentView: View {
                       } else if coordinator.sneakPeek.show && Defaults[.inlineHUD] && (coordinator.sneakPeek.type != .music) && (coordinator.sneakPeek.type != .battery) && vm.notchState == .closed {
                           InlineHUD(type: $coordinator.sneakPeek.type, value: $coordinator.sneakPeek.value, icon: $coordinator.sneakPeek.icon, hoverAnimation: $isHovering, gestureProgress: $gestureProgress)
                               .transition(.opacity)
+                      } else if showAgentPeek {
+                          AgentLiveActivity()
+                              .frame(alignment: .center)
                       } else if (!coordinator.expandingView.show || coordinator.expandingView.type == .music) && vm.notchState == .closed && (musicManager.isPlaying || !musicManager.isPlayerIdle) && coordinator.musicLiveActivityEnabled && !vm.hideOnClosed {
                           MusicLiveActivity()
                               .frame(alignment: .center)
                       } else if showPomodoroActivity {
                           PomodoroLiveActivity()
-                              .frame(alignment: .center)
-                      } else if showAgentActivity {
-                          AgentLiveActivity()
                               .frame(alignment: .center)
                       } else if !coordinator.expandingView.show && vm.notchState == .closed && (!musicManager.isPlaying && musicManager.isPlayerIdle) && Defaults[.showNotHumanFace] && !vm.hideOnClosed  {
                           BoringFaceAnimation()

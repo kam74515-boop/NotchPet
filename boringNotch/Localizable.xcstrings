@@ -26064,6 +26064,36 @@
           }
         }
       }
+    },
+    "Needs your input.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要你的输入。"
+          }
+        }
+      }
+    },
+    "Show the crab on the Agents page": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Agents 页显示螃蟹"
+          }
+        }
+      }
+    },
+    "The notch stays clean — it only pops a brief status when a task finishes, errors, or needs your input. The crab lives on the Agents tab.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刘海保持简洁——仅在任务完成、出错或需要你处理时短暂弹出提示。螃蟹在 Agents 标签页里。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
