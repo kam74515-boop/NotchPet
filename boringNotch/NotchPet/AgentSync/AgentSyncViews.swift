@@ -76,13 +76,6 @@ struct AgentsTabView: View {
                     Text("port \(Int(coord.activePort ?? 0))")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
-                if !store.sessions.isEmpty {
-                    Button { store.clearAll() } label: {
-                        Image(systemName: "xmark.circle")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Clear list")
-                }
             }
 
             if !coord.running {
@@ -122,24 +115,54 @@ struct AgentsTabView: View {
     }
 }
 
-struct AgentSessionRow: View {
-    let session: AgentSession
-    @ObservedObject var store = AgentSessionStore.shared
+/// A status dot that "breathes" (pulsing glow) while the agent is generating.
+struct StatusDot: View {
+    let state: AgentState
+    var size: CGFloat = 9
+    @State private var pulse = false
 
-    private var dotColor: Color {
-        switch session.state {
+    private var color: Color {
+        switch state {
         case .working, .thinking, .juggling, .sweeping, .carrying: return .blue
         case .attention: return .green
         case .error: return .red
         case .notification: return .orange
-        case .idle, .sleeping: return .secondary
+        case .idle, .sleeping: return Color.secondary
+        }
+    }
+
+    /// "AI 生成中" — thinking/working/subagents/compacting.
+    private var isGenerating: Bool {
+        switch state {
+        case .thinking, .working, .juggling, .sweeping: return true
+        default: return false
         }
     }
 
     var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
+            .scaleEffect(isGenerating && pulse ? 1.35 : 1.0)
+            .opacity(isGenerating && pulse ? 0.55 : 1.0)
+            .shadow(color: isGenerating ? color.opacity(0.9) : .clear, radius: pulse ? 5 : 0)
+            .animation(isGenerating
+                       ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true)
+                       : .easeOut(duration: 0.2),
+                       value: pulse)
+            .onAppear { pulse = isGenerating }
+            .onChange(of: isGenerating) { _, g in pulse = g }
+    }
+}
+
+struct AgentSessionRow: View {
+    let session: AgentSession
+    @ObservedObject var store = AgentSessionStore.shared
+
+    var body: some View {
         HStack(spacing: 8) {
-            // Status dot (blue = active, green = done, red = error, gray = idle).
-            Circle().fill(dotColor).frame(width: 8, height: 8)
+            // Breathing status dot (blue=generating, green=done, red=error, gray=idle).
+            StatusDot(state: session.state)
 
             // Which software this task belongs to — real tool logo (from clawd's icons),
             // falling back to a tinted SF Symbol.
@@ -167,7 +190,7 @@ struct AgentSessionRow: View {
                 Text(session.title)
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1).truncationMode(.tail)
-                Text("\(AgentKind.name(session.agentId)) · \(session.state.label)")
+                Text(AgentKind.name(session.agentId))
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -257,7 +280,7 @@ struct AgentSyncSettingsView: View {
             }
 
             Section("Coding tools") {
-                Text("NotchPet reuses clawd-on-desk's ready-made installers to capture tasks from many CLIs/IDEs. Toggle which to hook (Claude Code is always on above).")
+                Text("NotchPet reuses clawd-on-desk's ready-made installers to capture tasks from many CLIs/IDEs. Toggle which to hook.")
                     .font(.caption).foregroundStyle(.secondary)
                 ForEach(MultiAgentInstaller.agents) { a in
                     Toggle(AgentKind.name(a.id), isOn: Binding(

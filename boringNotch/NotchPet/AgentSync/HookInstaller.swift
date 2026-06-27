@@ -153,7 +153,8 @@ enum HookInstaller {
     static func isInstalled() async -> Bool {
         guard let existing = await XPCHelperClient.shared.readUserFile(claudeSettingsPath, maxBytes: 0),
               let text = String(data: existing, encoding: .utf8) else { return false }
-        return text.contains(marker)
+        // Either our legacy forwarder or clawd's vendored Claude hook counts as installed.
+        return text.contains(marker) || text.contains("np-clawd-hook.js")
     }
 
     // MARK: - Builders

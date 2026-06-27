@@ -42,9 +42,29 @@ final class AgentSessionStore: ObservableObject {
         }
     }
 
+    /// Most recent live session for an agent, used to coalesce stray events that arrive
+    /// without a usable session_id (avoids one conversation splitting into two rows).
+    private func coalesceKey(forAgent agentId: String) -> String? {
+        sessions.values
+            .filter { $0.agentId == agentId && Date().timeIntervalSince($0.updatedAt) < 120 }
+            .max(by: { $0.updatedAt < $1.updatedAt })?.id
+    }
+
     func ingest(event: String, payload: AgentEvent, agentIdOverride: String? = nil) {
-        let sid = payload.sessionId ?? "default"
+        let agentId = agentIdOverride ?? payload.agentId ?? "claude-code"
         let newState = AgentStateMachine.state(forEvent: event, payload: payload)
+
+        // Robust session key: use the real session_id; if missing/"default", attach to the
+        // agent's most-recent live session; otherwise fall back to agent+cwd.
+        let raw = payload.sessionId
+        let sid: String
+        if let r = raw, !r.isEmpty, r != "default" {
+            sid = r
+        } else if let recent = coalesceKey(forAgent: agentId) {
+            sid = recent
+        } else {
+            sid = "\(agentId)|\(payload.cwd ?? "default")"
+        }
 
         if event == "SessionEnd" {
             sessions[sid] = nil
@@ -54,7 +74,7 @@ final class AgentSessionStore: ObservableObject {
 
         var s = sessions[sid] ?? AgentSession(
             id: sid,
-            agentId: agentIdOverride ?? payload.agentId ?? "claude-code",
+            agentId: agentId,
             state: .idle,
             title: "",
             contextPercent: nil,
@@ -65,10 +85,12 @@ final class AgentSessionStore: ObservableObject {
             requiresAck: false
         )
 
-        s.agentId = agentIdOverride ?? payload.agentId ?? s.agentId
+        s.agentId = agentId
+        // Prefer the real conversation title computed by the hook; only fall back to the
+        // folder name when we still have nothing.
         if let t = payload.sessionTitle, !t.isEmpty { s.title = t }
         if s.title.isEmpty {
-            s.title = (payload.cwd as NSString?)?.lastPathComponent ?? "Claude Code"
+            s.title = (payload.cwd as NSString?)?.lastPathComponent ?? AgentKind.name(agentId)
         }
         if let pct = payload.contextUsage?.percent { s.contextPercent = pct }
         if let cwd = payload.cwd { s.cwd = cwd }

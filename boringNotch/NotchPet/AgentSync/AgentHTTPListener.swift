@@ -172,6 +172,14 @@ final class AgentHTTPListener {
         case ("GET", "/state"), ("GET", "/health"):
             respond(conn, status: "200 OK", json: ["app": Self.serverIdentity, "port": Int(activePort ?? 0)])
 
+        case ("GET", "/sessions"):
+            Task { @MainActor [weak self] in
+                let list = AgentSessionStore.shared.orderedSessions.map { s -> [String: Any] in
+                    ["id": s.id, "agent": s.agentId, "title": s.title, "state": s.state.rawValue, "ack": s.requiresAck]
+                }
+                self?.respond(conn, status: "200 OK", json: ["sessions": list])
+            }
+
         case ("POST", "/state"):
             let eventName = req.query["event"] ?? (jsonObject(req.body)?["event"] as? String) ?? ""
             let agentId = req.query["agent"]

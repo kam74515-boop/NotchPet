@@ -28,6 +28,9 @@ enum MultiAgentInstaller {
     /// Every coding tool clawd-on-desk ships an installer for (Claude Code excluded —
     /// it's handled by HookInstaller's own forwarder).
     static let agents: [CodingAgentDef] = [
+        // Claude Code uses clawd's rich installer too, so we get the real conversation
+        // title (computed from the transcript) and consistent session ids.
+        CodingAgentDef(id: "claude-code", installer: "install.js", defaultEnabled: true),
         CodingAgentDef(id: "codex", installer: "codex-install.js", defaultEnabled: true),
         CodingAgentDef(id: "cursor", installer: "cursor-install.js", defaultEnabled: true),
         CodingAgentDef(id: "gemini", installer: "gemini-install.js", defaultEnabled: true),
@@ -70,6 +73,9 @@ enum MultiAgentInstaller {
     /// preserve the user's existing config.
     static func installEnabled() async {
         guard await materialize() else { return }
+        // Remove the old dumb Claude forwarder (notchpet-hook.sh) so Claude only uses
+        // clawd's rich hook (real titles), avoiding double-posting.
+        _ = await HookInstaller.uninstall()
         for a in agents where isEnabled(a) {
             let script = clawdDir + "/hooks/" + a.installer
             let (code, out) = await XPCHelperClient.shared.runNotchpetNode(script, args: [])

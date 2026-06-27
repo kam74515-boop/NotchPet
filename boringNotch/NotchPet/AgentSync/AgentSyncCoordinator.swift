@@ -50,9 +50,9 @@ final class AgentSyncCoordinator: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 self.activePort = port
+                // Write the port file the hooks read; the hooks themselves are installed
+                // via clawd's vendored installers (MultiAgentInstaller), Claude included.
                 await HookInstaller.writeRuntime(port: port)
-                let result = await HookInstaller.install(port: port, permissionsEnabled: Defaults[.agentPermissionsEnabled])
-                self.lastInstallMessage = result.message
                 self.hooksInstalled = await HookInstaller.isInstalled()
             }
         }
@@ -65,9 +65,12 @@ final class AgentSyncCoordinator: ObservableObject {
         // The pet lives INSIDE the notch (see AgentLiveActivity / AgentPetView),
         // so there is no floating desktop window to show/hide here.
 
-        // Install hooks for all the other coding tools (Codex/Cursor/Gemini/…) via
-        // clawd-on-desk's vendored installers (once). Claude Code is handled above.
-        Task { await MultiAgentInstaller.installIfNeeded() }
+        // Install hooks for ALL coding tools (Claude Code + Codex/Cursor/Gemini/…) via
+        // clawd-on-desk's vendored installers (once).
+        Task {
+            await MultiAgentInstaller.installIfNeeded()
+            await MainActor.run { self.hooksInstalled = true }
+        }
     }
 
     func reinstallAllAgents() {
@@ -86,8 +89,9 @@ final class AgentSyncCoordinator: ObservableObject {
 
     func reinstallHooks() {
         Task { @MainActor in
-            let r = await HookInstaller.install(port: activePort ?? 23333, permissionsEnabled: Defaults[.agentPermissionsEnabled])
-            lastInstallMessage = r.message
+            lastInstallMessage = "Reinstalling hooks…"
+            await MultiAgentInstaller.installEnabled()
+            lastInstallMessage = "Hooks reinstalled."
             hooksInstalled = await HookInstaller.isInstalled()
         }
     }
