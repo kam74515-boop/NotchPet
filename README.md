@@ -1,3 +1,34 @@
+<!--
+=============================================================================
+  NotchPet — an AI efficiency-island notch app for macOS.
+  This is a FORK and MODIFIED VERSION of boring.notch by TheBoredTeam
+  (https://github.com/TheBoredTeam/boring.notch), with nook-x-style modules
+  and an AI coding-agent task-sync subsystem re-derived from clawd-on-desk
+  (https://github.com/rullerzhou-afk/clawd-on-desk).
+
+  License: the combined work is distributed under AGPL-3.0-only.
+  See NOTICE.md, LICENSE (GPL-3.0, boring.notch) and LICENSE.AGPL-3.0.txt.
+=============================================================================
+-->
+
+<h1 align="center">
+  <br>
+  NotchPet
+  <br>
+</h1>
+
+<p align="center">
+  <sub>An AI efficiency-island notch — a fork of
+  <a href="https://github.com/TheBoredTeam/boring.notch">boring.notch</a>
+  (GPL-3.0) incorporating <a href="https://github.com/rullerzhou-afk/clawd-on-desk">clawd-on-desk</a>
+  (AGPL-3.0). Combined work licensed under <b>AGPL-3.0-only</b> — see
+  <a href="NOTICE.md">NOTICE.md</a>.</sub>
+</p>
+
+<hr/>
+
+<p align="center"><sub>— original boring.notch README below —</sub></p>
+
 <h1 align="center">
   <br>
   <a href="http://theboring.name"><img src="https://framerusercontent.com/images/RFK4vs0kn8pRMuOO58JeyoemXA.png?scale-down-to=256" alt="Boring Notch" width="150"></a>

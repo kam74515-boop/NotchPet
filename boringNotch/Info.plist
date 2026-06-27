@@ -11,10 +11,14 @@
 	<true/>
 	<key>SUEnableInstallerLauncherService</key>
 	<true/>
+	<!-- NotchPet: auto-update disabled for v0. Placeholder feed never resolves so it
+	     can never pull upstream boring.notch releases. To re-enable: host your own
+	     appcast.xml, generate an EdDSA key pair with Sparkle's generate_keys, and set
+	     SUFeedURL + SUPublicEDKey to your own values. -->
 	<key>SUFeedURL</key>
-	<string>https://TheBoredTeam.github.io/boring.notch/appcast.xml</string>
+	<string>https://notchpet.invalid/appcast.xml</string>
 	<key>SUPublicEDKey</key>
-	<string>B1Y47t8C/v8ImurYA+9arEsuCrpxwJSviekiflMElbI=</string>
+	<string>REPLACE_WITH_YOUR_OWN_SPARKLE_ED_PUBLIC_KEY</string>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict/>
