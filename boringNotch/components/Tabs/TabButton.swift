@@ -16,7 +16,9 @@ struct TabButton: View {
     var body: some View {
         Button(action: onClick) {
             Image(systemName: icon)
-                .padding(.horizontal, 15)
+                .imageScale(.medium)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 2)
                 .contentShape(Capsule())
         }
         .buttonStyle(PlainButtonStyle())

@@ -97,10 +97,12 @@ struct ContentView: View {
             && Defaults[.pomodoroShowInClosedNotch] && !vm.hideOnClosed && musicIsIdle
     }
 
+    // When AI sync is on and music isn't using the closed notch, the clawd pet lives in
+    // the notch — idle crab when nothing's happening, reacting when an agent is active.
+    // AgentLiveActivity lays out around the physical notch cutout (left strip / right strip).
     private var showAgentActivity: Bool {
         vm.notchState == .closed && Defaults[.agentSyncEnabled] && Defaults[.agentShowInClosedNotch]
             && !vm.hideOnClosed && musicIsIdle
-            && (agentStore.hasActiveWork || agentCoordinator.completionPeek != nil)
     }
 
     var body: some View {
