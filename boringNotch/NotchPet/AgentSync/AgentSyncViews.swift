@@ -76,6 +76,13 @@ struct AgentsTabView: View {
                     Text("port \(Int(coord.activePort ?? 0))")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
+                if !store.sessions.isEmpty {
+                    Button { store.clearAll() } label: {
+                        Image(systemName: "xmark.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Clear list")
+                }
             }
 
             if !coord.running {
