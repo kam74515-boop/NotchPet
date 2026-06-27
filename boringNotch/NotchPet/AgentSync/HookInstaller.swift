@@ -59,7 +59,7 @@ enum HookInstaller {
     }
 
     /// Install (idempotent) the hook script + settings.json entries.
-    static func install(permissionsEnabled: Bool) async -> HookInstallResult {
+    static func install(port: UInt16, permissionsEnabled: Bool) async -> HookInstallResult {
         // 1) Write/refresh the hook script (executable).
         let scriptOK = await XPCHelperClient.shared.writeUserFile(
             hookScriptPath, data: Data(hookScript.utf8), executable: true)
@@ -110,7 +110,7 @@ enum HookInstaller {
                 hooks["PermissionRequest"] = groups
             }
             if !groupsContainPermissionHook(groups) {
-                groups.add(permissionGroup())
+                groups.add(permissionGroup(port: port))
                 added += 1
             }
         }
@@ -162,9 +162,8 @@ enum HookInstaller {
         ]
     }
 
-    private static func permissionGroup() -> [String: Any] {
-        let port = AgentSyncCoordinator.shared.activePort ?? 23333
-        return [
+    private static func permissionGroup(port: UInt16) -> [String: Any] {
+        [
             "matcher": "",
             "hooks": [
                 ["type": "http", "url": "http://127.0.0.1:\(port)/permission", "timeout": 600],

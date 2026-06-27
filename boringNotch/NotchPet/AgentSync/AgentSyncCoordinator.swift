@@ -51,7 +51,7 @@ final class AgentSyncCoordinator: ObservableObject {
                 guard let self else { return }
                 self.activePort = port
                 await HookInstaller.writeRuntime(port: port)
-                let result = await HookInstaller.install(permissionsEnabled: Defaults[.agentPermissionsEnabled])
+                let result = await HookInstaller.install(port: port, permissionsEnabled: Defaults[.agentPermissionsEnabled])
                 self.lastInstallMessage = result.message
                 self.hooksInstalled = await HookInstaller.isInstalled()
             }
@@ -78,7 +78,7 @@ final class AgentSyncCoordinator: ObservableObject {
 
     func reinstallHooks() {
         Task { @MainActor in
-            let r = await HookInstaller.install(permissionsEnabled: Defaults[.agentPermissionsEnabled])
+            let r = await HookInstaller.install(port: activePort ?? 23333, permissionsEnabled: Defaults[.agentPermissionsEnabled])
             lastInstallMessage = r.message
             hooksInstalled = await HookInstaller.isInstalled()
         }

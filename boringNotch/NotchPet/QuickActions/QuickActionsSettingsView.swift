@@ -26,7 +26,6 @@ struct QuickActionsSettingsView: View {
                     }
                     .onMove { manager.move(from: $0, to: $1) }
                 }
-                .environment(\.editMode, .constant(.active))
                 .frame(minHeight: 260)
             } header: {
                 Text("Actions")
