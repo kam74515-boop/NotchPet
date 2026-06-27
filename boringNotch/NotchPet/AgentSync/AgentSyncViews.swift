@@ -24,11 +24,16 @@ struct AgentLiveActivity: View {
 
         HStack(spacing: 0) {
             HStack {
-                Image(systemName: state.symbol)
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(state.tint)
-                    .font(.system(size: max(10, side - 4)))
-                    .frame(width: side, height: side)
+                if Defaults[.agentPetEnabled] {
+                    AgentPetView(state: state, size: max(12, side - 2))
+                        .frame(width: side, height: side)
+                } else {
+                    Image(systemName: state.symbol)
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(state.tint)
+                        .font(.system(size: max(10, side - 4)))
+                        .frame(width: side, height: side)
+                }
             }
 
             Rectangle()
@@ -63,7 +68,9 @@ struct AgentsTabView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label("AI Agents", systemImage: "cpu")
+                AgentPetView(state: store.displayState, size: 26)
+                    .frame(width: 30, height: 30)
+                Text("AI Agents")
                     .font(.headline)
                 Spacer()
                 if coord.running {
@@ -184,10 +191,12 @@ struct AgentSyncSettingsView: View {
                 Toggle("Show status in closed notch", isOn: $showInNotch)
             }
 
-            Section("Desktop pet") {
-                Toggle("Show desktop pet", isOn: Binding(
+            Section("Pet") {
+                Toggle("Show reactive pet in the notch", isOn: Binding(
                     get: { petEnabled },
                     set: { coord.setPetEnabled($0) }))
+                Text("A little crab inside the notch reacts to your AI agents' state. Turn off to show a minimal status icon instead.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section("Permissions (advanced)") {

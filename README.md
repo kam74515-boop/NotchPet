@@ -15,8 +15,8 @@
 
 NotchPet turns your MacBook notch (or a simulated notch on any display) into a small,
 glanceable control center — and connects it to your **AI coding agents**. Start a long
-task in Claude Code, walk away, and the notch (plus a little desktop crab) tells you the
-moment it's done.
+task in Claude Code, walk away, and the notch (with a little crab living inside it) tells
+you the moment it's done.
 
 It is built on top of the excellent open-source [**boring.notch**](https://github.com/TheBoredTeam/boring.notch)
 (music, calendar, file shelf, webcam, HUD replacement) and re-implements the AI-agent
@@ -46,8 +46,8 @@ Added by NotchPet (nook-x-style 效率岛):
 - 🎛️ Customizable tabs (enable/reorder modules)
 
 AI agent task sync (the headline 🦀):
-- Real-time notch + **floating desktop pet** that react to **Claude Code** (and compatible CLIs):
-  thinking → working → subagents → compacting → **done / error**
+- Real-time **in-notch pet** (🦀) that reacts to **Claude Code** (and compatible CLIs) right
+  inside the notch: thinking → working → subagents → compacting → **done / error**
 - ✅ **Completion notification** so you can walk away during long tasks
 - 🧰 One-click **Claude Code hook install** (merges into `~/.claude/settings.json`, preserving your own hooks)
 - 🧩 Multi-session tracking, an **Agents** tab, and optional permission bubbles
@@ -84,7 +84,7 @@ Nothing is installed or listened for until you opt in.
 - [ ] First full-Xcode compile pass (fix remaining build issues)
 - [ ] NotchPet app icon / branding art
 - [ ] Simplified-Chinese (zh-Hans) localization of new strings
-- [ ] Desktop pet: import clawd-on-desk SVG/APNG theme packs (currently a native pet)
+- [ ] In-notch pet: import clawd-on-desk SVG/APNG theme packs (currently a native crab)
 - [ ] Module drag-to-reorder UI
 
 ## Credits & License

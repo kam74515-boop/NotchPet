@@ -62,14 +62,13 @@ final class AgentSyncCoordinator: ObservableObject {
             }
         }
         listener.start()
-
-        if Defaults[.agentPetEnabled] { DesktopPetController.shared.show() }
+        // The pet lives INSIDE the notch (see AgentLiveActivity / AgentPetView),
+        // so there is no floating desktop window to show/hide here.
     }
 
     func stop() {
         running = false
         listener.stop()
-        DesktopPetController.shared.hide()
     }
 
     func setEnabled(_ on: Bool) {
@@ -97,10 +96,10 @@ final class AgentSyncCoordinator: ObservableObject {
         Task { @MainActor in hooksInstalled = await HookInstaller.isInstalled() }
     }
 
+    /// Toggle whether the reactive crab pet is shown inside the notch's live activity
+    /// (vs. a plain state icon). Purely a rendering preference — read by AgentLiveActivity.
     func setPetEnabled(_ on: Bool) {
         Defaults[.agentPetEnabled] = on
-        guard running else { return }
-        if on { DesktopPetController.shared.show() } else { DesktopPetController.shared.hide() }
     }
 
     // MARK: - Side effects
