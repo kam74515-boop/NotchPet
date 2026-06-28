@@ -15,15 +15,14 @@ struct BoringHeader: View {
     @StateObject var tvm = ShelfStateViewModel.shared
     var body: some View {
         HStack(spacing: 0) {
-            // LEFT half of the tabs, hugging the notch's left edge (no scrolling).
-            HStack(spacing: 0) {
+            // LEFT half of the tabs (first ~6). Keep the original .leading layout so the
+            // notch's rounded corners stay intact.
+            HStack {
                 if vm.notchState == .open && coordinator.alwaysShowTabs {
-                    Spacer(minLength: 0)
                     TabSelectionView(side: .left)
-                        .padding(.trailing, 4)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .opacity(vm.notchState == .closed ? 0 : 1)
             .blur(radius: vm.notchState == .closed ? 20 : 0)
             .zIndex(2)
@@ -43,12 +42,10 @@ struct BoringHeader: View {
                         OpenNotchHUD(type: $coordinator.sneakPeek.type, value: $coordinator.sneakPeek.value, icon: $coordinator.sneakPeek.icon)
                             .transition(.scale(scale: 0.8).combined(with: .opacity))
                     } else {
-                        // RIGHT half of the tabs, hugging the notch's right edge.
+                        // RIGHT half of the tabs (next ~6), before the mirror/settings/battery.
                         if coordinator.alwaysShowTabs {
                             TabSelectionView(side: .right)
-                                .padding(.leading, 4)
                         }
-                        Spacer(minLength: 0)
                         if Defaults[.showMirror] {
                             Button(action: {
                                 vm.toggleCameraPreview()
