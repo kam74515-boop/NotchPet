@@ -26124,6 +26124,56 @@
           }
         }
       }
+    },
+    "Components": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "组件"
+          }
+        }
+      }
+    },
+    "Tabs in use": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已用标签"
+          }
+        }
+      }
+    },
+    "Choose which components appear as tabs in the expanded notch, and drag to reorder. Up to 12 fit around the notch (6 left + 6 right) without scrolling.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择在展开刘海中显示哪些组件标签，拖动可排序。最多 12 个绕刘海显示（左 6 右 6），无需滚动。"
+          }
+        }
+      }
+    },
+    "More than 12 enabled — tabs past 12 won't be shown.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用超过 12 个——第 12 个之后的标签不会显示。"
+          }
+        }
+      }
+    },
+    "Home is always shown first as the default page. Drag handles reorder; the order also controls which side of the notch each tab lands on.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home 始终作为默认首页显示在最前。拖动可排序；顺序也决定每个标签落在刘海的哪一侧。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

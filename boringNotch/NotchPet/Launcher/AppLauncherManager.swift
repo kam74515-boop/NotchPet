@@ -62,6 +62,38 @@ struct LauncherItem: Identifiable, Hashable {
 final class AppLauncherManager: ObservableObject {
     static let shared = AppLauncherManager()
 
+    /// Common apps to auto-populate the grid with, resolved by bundle id via Launch
+    /// Services (sandbox-safe — no /Applications enumeration). Unknown/not-installed
+    /// ids simply resolve to nil and are skipped.
+    private static let suggestedBundleIDs: [String] = [
+        // Coding tools / IDEs
+        "com.todesktop.230313mzl4w4u92",            // Cursor
+        "com.microsoft.VSCode", "com.apple.dt.Xcode",
+        "com.exafunction.windsurf", "dev.zed.Zed",
+        // Apple
+        "com.apple.Safari", "com.apple.mobilesafari", "com.apple.Terminal",
+        "com.apple.systempreferences", "com.apple.finder", "com.apple.mail",
+        "com.apple.iCal", "com.apple.Notes", "com.apple.reminders",
+        "com.apple.Music", "com.apple.Photos", "com.apple.Preview",
+        "com.apple.AppStore", "com.apple.calculator", "com.apple.ScreenSaver.Engine",
+        // Popular third-party
+        "com.google.Chrome", "company.thebrowser.Browser", "org.mozilla.firefox",
+        "com.tencent.xinWeChat", "ru.keepcoder.Telegram", "com.tinyspeck.slackmacgap",
+        "com.hnc.Discord", "us.zoom.xos", "com.microsoft.VSCodeInsiders",
+        "notion.id", "md.obsidian", "com.figma.Desktop", "com.spotify.client",
+        "com.microsoft.Word", "com.microsoft.Excel", "com.microsoft.Powerpoint",
+        "com.microsoft.Outlook", "com.apple.iWork.Pages", "com.apple.iWork.Numbers",
+        "com.apple.iWork.Keynote", "com.openai.chat", "com.anthropic.claudefordesktop",
+    ]
+
+    /// Stable id derived from a string (so suggested cells don't churn between reloads).
+    private static func stableID(for s: String) -> UUID {
+        var b = Array(s.utf8.prefix(16))
+        while b.count < 16 { b.append(0) }
+        return UUID(uuid: (b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+                           b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]))
+    }
+
     /// Resolved, ready-to-render favorites (mirrors `Defaults[.launcherFavorites]`).
     @Published private(set) var items: [LauncherItem] = []
     /// Transient user-facing error (e.g. a bookmark that no longer resolves).
@@ -117,6 +149,22 @@ final class AppLauncherManager: ObservableObject {
             var updated = fav
             updated.name = display
             survivingFavorites.append(updated)
+        }
+
+        // Auto-populate with common installed apps (resolved by bundle id — sandbox-safe),
+        // so the grid isn't empty out of the box. User favorites always come first.
+        var seenPaths = Set(resolved.map { $0.url.standardizedFileURL.path })
+        for bid in Self.suggestedBundleIDs {
+            guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid) else { continue }
+            let path = url.standardizedFileURL.path
+            guard !seenPaths.contains(path) else { continue }
+            seenPaths.insert(path)
+            let icon = NSWorkspace.shared.icon(forFile: url.path)
+            icon.size = NSSize(width: 44, height: 44)
+            resolved.append(LauncherItem(
+                id: Self.stableID(for: bid), url: url,
+                name: bestName(for: url, fallback: url.deletingPathExtension().lastPathComponent),
+                icon: icon))
         }
 
         items = resolved

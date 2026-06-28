@@ -55,6 +55,9 @@ struct SettingsView: View {
                     Label("Shortcuts", systemImage: "keyboard")
                 }
                 Section("NotchPet") {
+                    NavigationLink(value: "Components") {
+                        Label("Components", systemImage: "square.grid.2x2")
+                    }
                     NavigationLink(value: "AI Agents") {
                         Label("AI Agents", systemImage: "cpu")
                     }
@@ -116,6 +119,8 @@ struct SettingsView: View {
                     Shelf()
                 case "Shortcuts":
                     Shortcuts()
+                case "Components":
+                    ModuleCustomizationView()
                 case "AI Agents":
                     AgentSyncSettingsView()
                 case "Pomodoro":
