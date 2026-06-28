@@ -13,8 +13,29 @@ let downloadSneakSize: CGSize = .init(width: 65, height: 1)
 let batterySneakSize: CGSize = .init(width: 160, height: 1)
 
 let shadowPadding: CGFloat = 20
-let openNotchSize: CGSize = .init(width: 640, height: 190)
-let windowSize: CGSize = .init(width: openNotchSize.width, height: openNotchSize.height + shadowPadding)
+
+/// Number of top tabs currently shown (Home + Shelf + enabled feature modules, capped at 12).
+var notchTabCount: Int {
+    let homeShelf = 1 + (Defaults[.boringShelf] ? 1 : 0)
+    let features = NotchPetModuleRegistry.all.filter {
+        Defaults[.enabledModules][$0.id] ?? $0.defaultEnabled
+    }.count
+    return min(12, homeShelf + features)
+}
+
+/// The expanded notch width ADAPTS to the number of top tabs, so the 6-left / 6-right tab
+/// layout fits around the notch and the notch shape's rounded corners always render
+/// correctly (a fixed width would overflow and square off the corners).
+var openNotchSize: CGSize {
+    let perSide = (notchTabCount + 1) / 2          // 1…6 tabs per side (left gets the extra)
+    let extraPairs = max(0, perSide - 3)           // beyond ~3 per side needs more width
+    let width = min(880, 640 + CGFloat(extraPairs) * 60)
+    return CGSize(width: width, height: 190)
+}
+
+var windowSize: CGSize {
+    .init(width: openNotchSize.width, height: openNotchSize.height + shadowPadding)
+}
 let cornerRadiusInsets: (opened: (top: CGFloat, bottom: CGFloat), closed: (top: CGFloat, bottom: CGFloat)) = (opened: (top: 19, bottom: 24), closed: (top: 6, bottom: 14))
 
 enum MusicPlayerImageSizes {

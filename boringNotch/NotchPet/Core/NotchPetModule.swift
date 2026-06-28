@@ -28,13 +28,12 @@ enum NotchPetModuleRegistry {
         NotchPetModule(id: "launcher", label: "Launcher", icon: "square.grid.2x2.fill", view: .launcher, defaultEnabled: true),
         NotchPetModule(id: "pomodoro", label: "Pomodoro", icon: "timer", view: .pomodoro, defaultEnabled: true),
         NotchPetModule(id: "todo", label: "To-Do", icon: "checklist", view: .todo, defaultEnabled: true),
-        // Off by default so the tab row fits without scrolling and the notch's rounded
-        // shoulder corners stay intact; enable any of these in Settings → Components.
-        NotchPetModule(id: "notes", label: "Notes", icon: "note.text", view: .notes, defaultEnabled: false),
-        NotchPetModule(id: "weather", label: "Weather", icon: "cloud.sun.fill", view: .weather, defaultEnabled: false),
-        NotchPetModule(id: "lyrics", label: "Lyrics", icon: "music.note.list", view: .lyrics, defaultEnabled: false),
-        NotchPetModule(id: "photos", label: "Photos", icon: "photo.on.rectangle", view: .photos, defaultEnabled: false),
-        NotchPetModule(id: "quickActions", label: "Actions", icon: "bolt.fill", view: .quickActions, defaultEnabled: false),
+        // The expanded notch widens to fit these (6 per side, up to 12 total).
+        NotchPetModule(id: "notes", label: "Notes", icon: "note.text", view: .notes, defaultEnabled: true),
+        NotchPetModule(id: "weather", label: "Weather", icon: "cloud.sun.fill", view: .weather, defaultEnabled: true),
+        NotchPetModule(id: "lyrics", label: "Lyrics", icon: "music.note.list", view: .lyrics, defaultEnabled: true),
+        NotchPetModule(id: "photos", label: "Photos", icon: "photo.on.rectangle", view: .photos, defaultEnabled: true),
+        NotchPetModule(id: "quickActions", label: "Actions", icon: "bolt.fill", view: .quickActions, defaultEnabled: true),
     ]
 
     static func module(for view: NotchViews) -> NotchPetModule? {

@@ -15,14 +15,15 @@ struct BoringHeader: View {
     @StateObject var tvm = ShelfStateViewModel.shared
     var body: some View {
         HStack(spacing: 0) {
+            // LEFT half of the tabs (≤6), hugging the notch's left edge via alignment
+            // only (NO Spacer — a greedy Spacer expands the region and squares the corners).
             HStack {
-                if (!tvm.isEmpty || coordinator.alwaysShowTabs) && Defaults[.boringShelf] {
-                    TabSelectionView()
-                } else if vm.notchState == .open {
-                    EmptyView()
+                if vm.notchState == .open && coordinator.alwaysShowTabs {
+                    TabSelectionView(side: .left)
+                        .padding(.trailing, 4)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .opacity(vm.notchState == .closed ? 0 : 1)
             .blur(radius: vm.notchState == .closed ? 20 : 0)
             .zIndex(2)
@@ -42,6 +43,12 @@ struct BoringHeader: View {
                         OpenNotchHUD(type: $coordinator.sneakPeek.type, value: $coordinator.sneakPeek.value, icon: $coordinator.sneakPeek.icon)
                             .transition(.scale(scale: 0.8).combined(with: .opacity))
                     } else {
+                        // RIGHT half of the tabs (≤6), hugging the notch's right edge
+                        // (no Spacer), then the mirror/settings/battery icons.
+                        if coordinator.alwaysShowTabs {
+                            TabSelectionView(side: .right)
+                                .padding(.leading, 4)
+                        }
                         if Defaults[.showMirror] {
                             Button(action: {
                                 vm.toggleCameraPreview()
@@ -93,7 +100,7 @@ struct BoringHeader: View {
                 }
             }
             .font(.system(.headline, design: .rounded))
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .opacity(vm.notchState == .closed ? 0 : 1)
             .blur(radius: vm.notchState == .closed ? 20 : 0)
             .zIndex(2)
