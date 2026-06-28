@@ -21,8 +21,12 @@ struct DynamicNotchApp: App {
     let updaterController: SPUStandardUpdaterController
 
     init() {
+        // NotchPet: don't start the Sparkle updater. The placeholder feed can't resolve and
+        // Sparkle's installer/downloader XPC helpers aren't notarized in local/ad-hoc builds,
+        // which otherwise pops a "couldn't launch the updater" dialog on launch.
         updaterController = SPUStandardUpdaterController(
-            startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+            startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
+        updaterController.updater.automaticallyChecksForUpdates = false
 
         // Initialize the settings window controller with the updater controller
         SettingsWindowController.shared.setUpdaterController(updaterController)

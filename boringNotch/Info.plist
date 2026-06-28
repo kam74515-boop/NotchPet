@@ -11,6 +11,12 @@
 	<true/>
 	<key>SUEnableInstallerLauncherService</key>
 	<true/>
+	<!-- NotchPet: disable Sparkle's automatic update checks so the placeholder feed
+	     never pops a "couldn't check for updates" dialog. -->
+	<key>SUEnableAutomaticChecks</key>
+	<false/>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
 	<!-- NotchPet: auto-update disabled for v0. Placeholder feed never resolves so it
 	     can never pull upstream boring.notch releases. To re-enable: host your own
 	     appcast.xml, generate an EdDSA key pair with Sparkle's generate_keys, and set

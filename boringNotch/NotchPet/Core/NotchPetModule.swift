@@ -24,12 +24,13 @@ enum NotchPetModuleRegistry {
     static let all: [NotchPetModule] = [
         // clawd-on-desk AI agent page first so it's always visible in the tab bar.
         NotchPetModule(id: "agents", label: "Agents", icon: "cpu", view: .agents, defaultEnabled: true),
+        // App launcher next so the "apps" page is reachable without scrolling.
+        NotchPetModule(id: "launcher", label: "Launcher", icon: "square.grid.2x2.fill", view: .launcher, defaultEnabled: true),
         NotchPetModule(id: "pomodoro", label: "Pomodoro", icon: "timer", view: .pomodoro, defaultEnabled: true),
         NotchPetModule(id: "todo", label: "To-Do", icon: "checklist", view: .todo, defaultEnabled: true),
         NotchPetModule(id: "notes", label: "Notes", icon: "note.text", view: .notes, defaultEnabled: true),
         NotchPetModule(id: "weather", label: "Weather", icon: "cloud.sun.fill", view: .weather, defaultEnabled: true),
         NotchPetModule(id: "lyrics", label: "Lyrics", icon: "music.note.list", view: .lyrics, defaultEnabled: true),
-        NotchPetModule(id: "launcher", label: "Launcher", icon: "square.grid.2x2.fill", view: .launcher, defaultEnabled: true),
         NotchPetModule(id: "photos", label: "Photos", icon: "photo.on.rectangle", view: .photos, defaultEnabled: true),
         NotchPetModule(id: "quickActions", label: "Actions", icon: "bolt.fill", view: .quickActions, defaultEnabled: true),
     ]
