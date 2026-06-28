@@ -8,6 +8,7 @@
 
 import SwiftUI
 import AppKit
+import Defaults
 
 /// Animation/display states, mirroring clawd's state set.
 enum AgentState: String, Codable {
@@ -138,7 +139,7 @@ struct AgentEvent: Decodable {
 }
 
 /// A tracked agent session.
-struct AgentSession: Identifiable {
+struct AgentSession: Identifiable, Codable, Defaults.Serializable {
     let id: String          // session_id
     var agentId: String
     var state: AgentState

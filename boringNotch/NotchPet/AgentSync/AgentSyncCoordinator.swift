@@ -140,7 +140,8 @@ final class AgentSyncCoordinator: ObservableObject {
                 after: 0.1,
                 sound: Defaults[.agentCompletionSound])
         }
-        flashPeek(s)
+        // No timed peek: the closed-notch clarification indicator persists (driven by the
+        // session's .notification state) until the user handles it and the agent moves on.
     }
 
     private func flashPeek(_ s: AgentSession) {

@@ -99,12 +99,12 @@ struct ContentView: View {
             && Defaults[.pomodoroShowInClosedNotch] && !vm.hideOnClosed && musicIsIdle
     }
 
-    // No persistent indicator. The closed notch only pops a transient agent peek when a
-    // task COMPLETES (or errors) or needs CLARIFICATION — i.e. while a completionPeek is
-    // active. It lays out around the physical notch cutout (left strip / right strip).
+    // The closed notch shows the agent indicator when a task COMPLETES/errors (a brief
+    // completionPeek), and PERSISTS while an agent needs clarification (state .notification)
+    // until the user handles it. It lays out around the physical notch cutout.
     private var showAgentPeek: Bool {
-        vm.notchState == .closed && !vm.hideOnClosed
-            && Defaults[.agentShowInClosedNotch] && agentCoordinator.completionPeek != nil
+        vm.notchState == .closed && !vm.hideOnClosed && Defaults[.agentShowInClosedNotch]
+            && (agentCoordinator.completionPeek != nil || agentStore.displayState == .notification)
     }
 
     var body: some View {
@@ -159,6 +159,10 @@ struct ContentView: View {
                         handleHover(hovering)
                     }
                     .onTapGesture {
+                        // If an agent needs clarification, jump straight to the Agents tab.
+                        if agentStore.displayState == .notification {
+                            coordinator.currentView = .agents
+                        }
                         doOpen()
                     }
                     .conditionalModifier(Defaults[.enableGestures]) { view in

@@ -7,6 +7,12 @@
 //
 
 import SwiftUI
+import Defaults
+
+extension Defaults.Keys {
+    /// Recently completed sessions, persisted so they survive an app restart.
+    static let persistedCompletedSessions = Key<[AgentSession]>("notchpet.agentsync.completedSessions", default: [])
+}
 
 @MainActor
 final class AgentSessionStore: ObservableObject {
@@ -20,9 +26,23 @@ final class AgentSessionStore: ObservableObject {
     private var cleanupTimer: Timer?
 
     private init() {
+        // Restore recently-completed sessions so they're still visible after a restart.
+        for s in Defaults[.persistedCompletedSessions] {
+            sessions[s.id] = s
+        }
+        recomputeDisplay()
         cleanupTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.pruneStale() }
         }
+    }
+
+    /// Persist only the completed (unacknowledged) sessions, newest first, capped.
+    private func persistCompleted() {
+        let completed = sessions.values
+            .filter { $0.requiresAck }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .prefix(20)
+        Defaults[.persistedCompletedSessions] = Array(completed)
     }
 
     /// Number of concurrently working sessions (for pet/indicator tier-up).
@@ -114,15 +134,18 @@ final class AgentSessionStore: ObservableObject {
             // Agent needs the user (permission prompt / AskUserQuestion / clarification).
             AgentSyncCoordinator.shared.handleClarification(s)
         }
+        persistCompleted()
     }
 
     func ack(_ id: String) {
         sessions[id]?.requiresAck = false
         recomputeDisplay()
+        persistCompleted()
     }
 
     func clearAll() {
         sessions.removeAll()
+        Defaults[.persistedCompletedSessions] = []
         recomputeDisplay()
     }
 
@@ -140,10 +163,10 @@ final class AgentSessionStore: ObservableObject {
     }
 
     private func pruneStale() {
-        let cutoff = Date().addingTimeInterval(-300) // 5 min TTL
+        let cutoff = Date().addingTimeInterval(-300) // 5 min TTL; completed sessions are kept.
         let before = sessions.count
         sessions = sessions.filter { $0.value.updatedAt > cutoff || $0.value.requiresAck }
-        if sessions.count != before { recomputeDisplay() }
+        if sessions.count != before { recomputeDisplay(); persistCompleted() }
     }
 
     private func recomputeDisplay() {
