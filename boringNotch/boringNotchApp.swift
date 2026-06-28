@@ -65,6 +65,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var timer: Timer?
     var closeNotchTask: Task<Void, Never>?
     private var previousScreens: [NSScreen]?
+    private var moduleObservers: [Defaults.Observation] = []
     private var onboardingWindowController: NSWindowController?
     private var screenLockedObserver: Any?
     private var screenUnlockedObserver: Any?
@@ -295,6 +296,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             AgentSyncCoordinator.shared.startIfEnabled()
         }
 
+        // The expanded notch width adapts to the tab count; resize the window when the
+        // visible tab set changes so the 6+6 layout always fits and corners stay intact.
+        moduleObservers = [
+            Defaults.observe(.enabledModules) { [weak self] _ in
+                Task { @MainActor in self?.resizeNotchWindows() }
+            },
+            Defaults.observe(.moduleOrder) { [weak self] _ in
+                Task { @MainActor in self?.resizeNotchWindows() }
+            },
+            Defaults.observe(.boringShelf) { [weak self] _ in
+                Task { @MainActor in self?.resizeNotchWindows() }
+            },
+        ]
+
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(screenConfigurationDidChange),
@@ -486,6 +501,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.setupDragDetectors()
             }
         }
+    }
+
+    /// Resize the notch window(s) to the current adaptive `windowSize` (driven by tab count).
+    @MainActor func resizeNotchWindows() {
+        let target = windowSize.width
+        func resize(_ window: NSWindow) {
+            guard abs(window.frame.width - target) > 0.5 else { return }
+            var frame = window.frame
+            frame.size.width = target
+            window.setFrame(frame, display: true, animate: false)
+        }
+        if let window { resize(window) }
+        for window in windows.values { resize(window) }
+        adjustWindowPosition()
     }
 
     @objc func adjustWindowPosition(changeAlpha: Bool = false) {
