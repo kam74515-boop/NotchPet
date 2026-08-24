@@ -182,8 +182,7 @@ private struct ClarCardHeightKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
-/// An AskUserQuestion answered right in the notch — pick option(s), submit back to Claude Code,
-/// or defer to the terminal. (Submitting uses the PermissionRequest hook's updatedInput.answers.)
+/// An AskUserQuestion answered right in the notch, including Codex app-server questionnaires.
 struct ClarificationCard: View {
     let clarification: PendingClarification
     @ObservedObject var coord = AgentSyncCoordinator.shared
@@ -215,7 +214,9 @@ struct ClarificationCard: View {
                             .font(.system(size: 10, weight: .medium)).foregroundStyle(.white.opacity(0.55))
                     }
                     Spacer()
-                    Button("Go to terminal") { coord.clarificationToTerminal() }
+                    Button(clarification.isReadOnly ? "Open Codex" : "Go to terminal") {
+                        coord.clarificationToTerminal()
+                    }
                         .font(.system(size: 10, weight: .medium))
                         .buttonStyle(.plain).foregroundStyle(.white.opacity(0.7))
                 }
@@ -253,7 +254,7 @@ struct ClarificationCard: View {
             }
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(q.options) { opt in optionButton(q, opt) }
-                customInputRow(q)
+                if q.allowsOther { customInputRow(q) }
             }
             HStack(spacing: 8) {
                 if idx > 0 {
@@ -261,9 +262,11 @@ struct ClarificationCard: View {
                         .buttonStyle(.bordered).controlSize(.small)
                 }
                 Spacer()
-                Button(isLast ? "Submit" : "Next") { advance(from: q, isLast: isLast) }
-                    .buttonStyle(.borderedProminent).controlSize(.small)
-                    .disabled(!answered(q))
+                Button(isLast ? "Submit" : "Next") {
+                    advance(from: q, isLast: isLast)
+                }
+                .buttonStyle(.borderedProminent).controlSize(.small)
+                .disabled(!answered(q))
             }
             .padding(.top, 2)
         }
@@ -336,8 +339,10 @@ struct ClarificationCard: View {
         } else {
             customText[q.id] = ""   // single-select: picking an option clears the typed answer
             selections[q.id] = [opt.id]
-            // Single-select: picking auto-advances to the next question (or submits if last).
-            advance(from: q, isLast: clarification.questions.last?.id == q.id)
+            // Selecting the final answer must not submit implicitly: the explicit Submit button is
+            // the user's confirmation. For a multi-question form, selection may still advance to
+            // the next question, where the final answer is confirmed before anything is sent.
+            if clarification.questions.last?.id != q.id { step += 1 }
         }
     }
 
@@ -349,7 +354,7 @@ struct ClarificationCard: View {
             var parts = q.options.filter { selections[q.id]?.contains($0.id) ?? false }.map(\.label)
             let custom = customText[q.id]?.trimmingCharacters(in: .whitespaces) ?? ""
             if !custom.isEmpty { parts.append(custom) }
-            if !parts.isEmpty { answers[q.question] = parts.joined(separator: ", ") }
+            if !parts.isEmpty { answers[q.answerKey] = parts.joined(separator: ", ") }
         }
         coord.resolveClarification(answers)
     }

@@ -105,6 +105,8 @@ final class AgentHTTPListener {
     var onPortBound: ((UInt16) -> Void)?
     var onPermission: ((PermissionRequestPayload, @escaping (PermissionDecision) -> Void) -> Void)?
     var onClarification: ((PendingClarification) -> Void)?
+    var onCodexUserInputRequest: ((String, String, String?, String?, [ClarificationQuestion], Bool) -> Void)?
+    var onCodexUserInputResolved: ((String, String) -> Void)?
 
     func start() {
         queue.async { [weak self] in
@@ -208,6 +210,29 @@ final class AgentHTTPListener {
             if !name.isEmpty {
                 Task { @MainActor in
                     AgentSessionStore.shared.ingest(event: name, payload: event, agentIdOverride: agentId)
+                    let resolvedAgentId = agentId ?? event.agentId ?? ""
+                    guard resolvedAgentId == "codex", let input = event.codexUserInput,
+                          !input.callId.isEmpty else { return }
+                    if input.phase == "resolved" {
+                        self.onCodexUserInputResolved?(event.sessionId ?? "default", input.callId)
+                    } else if input.phase == "request", event.headless != true {
+                        let questions = input.questions.map { question in
+                            ClarificationQuestion(
+                                question: question.question,
+                                header: question.header,
+                                options: question.options.map {
+                                    ClarificationOption(label: $0.label, description: $0.description)
+                                },
+                                multiSelect: false,
+                                allowsOther: question.isOther,
+                                answerKey: question.id)
+                        }.filter { !$0.question.isEmpty }
+                        if !questions.isEmpty {
+                            self.onCodexUserInputRequest?(
+                                event.sessionId ?? "default", input.callId,
+                                input.requestId, input.requestIdType, questions, false)
+                        }
+                    }
                 }
             }
             respond(conn, status: "200 OK", json: [:])

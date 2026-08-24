@@ -253,6 +253,11 @@ struct ContentView: View {
                         coordinator.currentView = .agents
                         doOpen()
                     }
+                    .onChange(of: agentCoordinator.clarificationSubmitCompletion) { _, _ in
+                        // Submission is an explicit user action: retract even though the pointer is
+                        // necessarily still hovering over the button that was just clicked.
+                        forceCloseAfterClarificationSubmit()
+                    }
                     .onChange(of: agentStore.displayState) { _, state in
                         // An agent needs the user (clarification / waiting) — expand and show.
                         guard state == .notification else { return }
@@ -665,6 +670,20 @@ struct ContentView: View {
                       !self.vm.isBatteryPopoverActive, !SharingStateManager.shared.preventNotchClose
                 else { return }
                 self.vm.close()
+            }
+        }
+    }
+
+    private func forceCloseAfterClarificationSubmit() {
+        hoverTask?.cancel()
+        hoverTask = Task {
+            try? await Task.sleep(for: .milliseconds(160))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard self.vm.notchState == .open, !self.pinnedOpenForAgent,
+                      !self.vm.isBatteryPopoverActive, !SharingStateManager.shared.preventNotchClose
+                else { return }
+                withAnimation(self.animationSpring) { self.vm.close() }
             }
         }
     }

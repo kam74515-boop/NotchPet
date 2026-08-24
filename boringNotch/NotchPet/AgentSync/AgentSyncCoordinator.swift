@@ -8,6 +8,7 @@
 //
 
 import SwiftUI
+import AppKit
 import Defaults
 
 extension Defaults.Keys {
@@ -45,6 +46,11 @@ final class AgentSyncCoordinator: ObservableObject {
     @Published var pendingClarification: PendingClarification?
     private var clarificationTimeout: Task<Void, Never>?
 
+    /// Incremented after an answer submitted from the notch is accepted. ContentView observes this
+    /// separately from `pendingClarification` so a click-to-submit can retract the notch even while
+    /// the pointer is still inside its hover region.
+    @Published private(set) var clarificationSubmitCompletion = 0
+
     /// The clarification card's measured natural height (reported by the view), so the notch can
     /// size to exactly fit it — uniform margins, no inner gap, no scroll.
     @Published var clarificationCardHeight: CGFloat = 0
@@ -73,6 +79,16 @@ final class AgentSyncCoordinator: ObservableObject {
                 _ = await MultiAgentInstaller.installClaude()
                 self.hooksInstalled = await HookInstaller.isInstalled()
             }
+        }
+        listener.onCodexUserInputRequest = { [weak self] sessionId, callId, requestId, requestIdType, questions, headless in
+            Task { @MainActor in
+                self?.presentCodexUserInput(sessionId: sessionId, callId: callId,
+                                            requestId: requestId, requestIdType: requestIdType,
+                                            questions: questions, headless: headless)
+            }
+        }
+        listener.onCodexUserInputResolved = { [weak self] sessionId, callId in
+            Task { @MainActor in self?.dismissCodexUserInput(sessionId: sessionId, callId: callId) }
         }
         configurePermissionHandling(enabled: Defaults[.agentPermissionsEnabled])
         listener.start()
@@ -265,13 +281,14 @@ final class AgentSyncCoordinator: ObservableObject {
     // MARK: - Clarification (AskUserQuestion answered in the notch)
 
     func presentClarification(_ c: PendingClarification) {
-        if autoPilotEnabled {
+        if autoPilotEnabled && !c.isReadOnly {
             resolveClarificationForAutoPilot(c)
             return
         }
         clarificationCardHeight = 0   // start fresh; the card re-measures and the notch sizes to it
         pendingClarification = c
         clarificationTimeout?.cancel()
+        if c.isReadOnly { return }
         clarificationTimeout = Task { [weak self] in
             try? await Task.sleep(for: .seconds(590))   // just under the 600s hook timeout
             await MainActor.run { self?.pendingClarification = nil }
@@ -279,6 +296,10 @@ final class AgentSyncCoordinator: ObservableObject {
     }
 
     private func resolveClarificationForAutoPilot(_ c: PendingClarification) {
+        guard !c.isReadOnly else {
+            presentClarification(c)
+            return
+        }
         guard !c.headless, !AgentSessionStore.shared.isHeadlessSession(c.sessionId) else {
             c.goToTerminal()
             pendingClarification = nil
@@ -303,8 +324,18 @@ final class AgentSyncCoordinator: ObservableObject {
     /// Submit the user's answers (label per question text) back to Claude Code via the hook.
     func resolveClarification(_ answers: [String: String]) {
         clarificationTimeout?.cancel()
-        pendingClarification?.submit(answers)
+        guard let clarification = pendingClarification else { return }
+        clarification.submit(answers)
+        if clarification.isReadOnly {
+            // A bridge-backed Codex prompt is cleared by the submit completion callback only after
+            // the helper successfully writes the JSON-RPC response. Legacy log-only prompts have no
+            // request id, so retain the exact-task fallback for those.
+            if clarification.externalRequestId == nil { clarification.goToTerminal() }
+            return
+        }
         pendingClarification = nil
+        clarificationCardHeight = 0
+        clarificationSubmitCompletion &+= 1
         AgentSessionStore.shared.clearNotificationAlerts()
     }
 
@@ -325,6 +356,99 @@ final class AgentSyncCoordinator: ObservableObject {
         pendingClarification = nil
         clarificationCardHeight = 0
         AgentSessionStore.shared.clearNotificationAlerts()
+    }
+
+    private func presentCodexUserInput(sessionId: String, callId: String,
+                                       requestId: String?, requestIdType: String?,
+                                       questions: [ClarificationQuestion], headless: Bool) {
+        guard !headless else { return }
+        if let current = pendingClarification,
+           current.sessionId == sessionId, current.externalCallId == callId,
+           current.externalRequestId != nil, requestId == nil {
+            return
+        }
+        let clarification = PendingClarification(
+            sessionId: sessionId,
+            title: "Codex",
+            questions: questions,
+            headless: false,
+            submit: { [weak self] answers in
+                guard let requestId else { return }
+                Task {
+                    let submitted = await Self.submitCodexAnswers(
+                        requestId: requestId,
+                        requestIdType: requestIdType,
+                        answers: answers)
+                    await MainActor.run {
+                        self?.finishCodexUserInputSubmission(
+                            sessionId: sessionId,
+                            callId: callId,
+                            requestId: requestId,
+                            succeeded: submitted)
+                    }
+                }
+            },
+            goToTerminal: { Self.openCodexThread(sessionId: sessionId) },
+            isReadOnly: true,
+            externalCallId: callId,
+            externalRequestId: requestId)
+        presentClarification(clarification)
+    }
+
+    private func dismissCodexUserInput(sessionId: String, callId: String) {
+        guard pendingClarification?.sessionId == sessionId,
+              pendingClarification?.externalCallId == callId else { return }
+        clarificationTimeout?.cancel()
+        pendingClarification = nil
+        clarificationCardHeight = 0
+    }
+
+    private func finishCodexUserInputSubmission(sessionId: String, callId: String,
+                                                requestId: String, succeeded: Bool) {
+        guard let current = pendingClarification,
+              current.sessionId == sessionId,
+              current.externalCallId == callId,
+              current.externalRequestId == requestId else { return }
+        guard succeeded else {
+            lastInstallMessage = "Could not submit the Codex answer. Please try again."
+            return
+        }
+        clarificationTimeout?.cancel()
+        pendingClarification = nil
+        clarificationCardHeight = 0
+        clarificationSubmitCompletion &+= 1
+        AgentSessionStore.shared.clearNotificationAlerts()
+    }
+
+    private static func openCodexThread(sessionId: String) {
+        let threadId = sessionId.hasPrefix("codex:")
+            ? String(sessionId.dropFirst("codex:".count))
+            : sessionId
+        guard UUID(uuidString: threadId) != nil else {
+            let candidates = ["/Applications/ChatGPT.app", "/Applications/Codex.app"]
+            guard let path = candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) else { return }
+            NSWorkspace.shared.openApplication(
+                at: URL(fileURLWithPath: path),
+                configuration: NSWorkspace.OpenConfiguration())
+            return
+        }
+
+        var components = URLComponents()
+        components.scheme = "codex"
+        components.host = "threads"
+        components.path = "/\(threadId)"
+        guard let url = components.url else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    private static func submitCodexAnswers(requestId: String, requestIdType: String?,
+                                           answers: [String: String]) async -> Bool {
+        guard let data = try? JSONSerialization.data(withJSONObject: answers),
+              let json = String(data: data, encoding: .utf8) else { return false }
+        let script = MultiAgentInstaller.clawdDir + "/hooks/codex-app-server-answer.js"
+        let (code, _) = await XPCHelperClient.shared.runNotchpetNode(
+            script, args: [requestIdType == "number" ? "number" : "string", requestId, json])
+        return code == 0
     }
 
     /// The permission request was resolved elsewhere — clear the notch card.
@@ -348,6 +472,10 @@ final class AgentSyncCoordinator: ObservableObject {
 
     /// Defer to the terminal — Claude Code shows its own questionnaire there.
     func clarificationToTerminal() {
+        if let clarification = pendingClarification, clarification.isReadOnly {
+            clarification.goToTerminal()
+            return
+        }
         clarificationTimeout?.cancel()
         pendingClarification?.goToTerminal()
         pendingClarification = nil
@@ -368,6 +496,18 @@ struct ClarificationQuestion: Identifiable {
     let header: String
     let options: [ClarificationOption]
     let multiSelect: Bool
+    let allowsOther: Bool
+    let answerKey: String
+
+    init(question: String, header: String, options: [ClarificationOption],
+         multiSelect: Bool, allowsOther: Bool = true, answerKey: String? = nil) {
+        self.question = question
+        self.header = header
+        self.options = options
+        self.multiSelect = multiSelect
+        self.allowsOther = allowsOther
+        self.answerKey = answerKey ?? question
+    }
 }
 
 /// A pending AskUserQuestion shown in the notch. `submit` sends the chosen answers back to Claude
@@ -380,6 +520,27 @@ struct PendingClarification: Identifiable {
     let headless: Bool
     let submit: ([String: String]) -> Void   // [question text: answer string]
     let goToTerminal: () -> Void
+    let isReadOnly: Bool
+    let externalCallId: String?
+    let externalRequestId: String?
+
+    init(id: UUID = UUID(), sessionId: String, title: String,
+         questions: [ClarificationQuestion], headless: Bool,
+         submit: @escaping ([String: String]) -> Void,
+         goToTerminal: @escaping () -> Void,
+         isReadOnly: Bool = false, externalCallId: String? = nil,
+         externalRequestId: String? = nil) {
+        self.id = id
+        self.sessionId = sessionId
+        self.title = title
+        self.questions = questions
+        self.headless = headless
+        self.submit = submit
+        self.goToTerminal = goToTerminal
+        self.isReadOnly = isReadOnly
+        self.externalCallId = externalCallId
+        self.externalRequestId = externalRequestId
+    }
 }
 
 /// A tool-permission request awaiting the user's Allow/Deny inside the notch.

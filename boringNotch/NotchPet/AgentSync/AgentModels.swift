@@ -137,6 +137,57 @@ struct AgentContextUsage: Decodable {
     }
 }
 
+struct CodexUserInputOption: Decodable {
+    var label: String
+    var description: String
+}
+
+struct CodexUserInputQuestion: Decodable {
+    var id: String
+    var header: String
+    var question: String
+    var options: [CodexUserInputOption]
+    var isOther: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, header, question, options
+        case isOther
+    }
+
+    init(from decoder: Decoder) {
+        let c = try? decoder.container(keyedBy: CodingKeys.self)
+        id = Lenient.string(c, .id) ?? ""
+        header = Lenient.string(c, .header) ?? ""
+        question = Lenient.string(c, .question) ?? ""
+        options = (try? c?.decodeIfPresent([CodexUserInputOption].self, forKey: .options)) ?? []
+        isOther = Lenient.bool(c, .isOther) ?? false
+    }
+}
+
+struct CodexUserInputPayload: Decodable {
+    var phase: String
+    var callId: String
+    var requestId: String?
+    var requestIdType: String?
+    var questions: [CodexUserInputQuestion]
+
+    enum CodingKeys: String, CodingKey {
+        case phase, questions
+        case callId = "call_id"
+        case requestId = "request_id"
+        case requestIdType = "request_id_type"
+    }
+
+    init(from decoder: Decoder) {
+        let c = try? decoder.container(keyedBy: CodingKeys.self)
+        phase = Lenient.string(c, .phase) ?? ""
+        callId = Lenient.string(c, .callId) ?? ""
+        requestId = Lenient.string(c, .requestId)
+        requestIdType = Lenient.string(c, .requestIdType)
+        questions = (try? c?.decodeIfPresent([CodexUserInputQuestion].self, forKey: .questions)) ?? []
+    }
+}
+
 /// Decoded body of a `POST /state` from the hook script (Claude Code hook payload). Decoded
 /// leniently — a single bad field never drops the whole event.
 struct AgentEvent: Decodable {
@@ -157,6 +208,7 @@ struct AgentEvent: Decodable {
     var backgroundTasksCount: Int?
     var sessionCronsCount: Int?
     var stopHookActive: Bool?
+    var codexUserInput: CodexUserInputPayload?
 
     enum CodingKeys: String, CodingKey {
         case event
@@ -176,6 +228,7 @@ struct AgentEvent: Decodable {
         case backgroundTasksCount = "background_tasks_count"
         case sessionCronsCount = "session_crons_count"
         case stopHookActive = "stop_hook_active"
+        case codexUserInput = "codex_user_input"
     }
 
     init() {}
@@ -198,6 +251,7 @@ struct AgentEvent: Decodable {
         backgroundTasksCount = Lenient.int(c, .backgroundTasksCount)
         sessionCronsCount = Lenient.int(c, .sessionCronsCount)
         stopHookActive = Lenient.bool(c, .stopHookActive)
+        codexUserInput = (try? c?.decodeIfPresent(CodexUserInputPayload.self, forKey: .codexUserInput)) ?? nil
     }
 }
 

@@ -91,6 +91,9 @@ enum MultiAgentInstaller {
     /// daemons (they post to our listener at 24333). Idempotent: the helper kills any prior copy.
     static func startMonitors() async {
         guard await materialize() else { return }
+        let bridge = clawdDir + "/hooks/codex-app-server-bridge.js"
+        let bridgeOK = await XPCHelperClient.shared.runNotchpetDaemon(bridge, args: [])
+        NSLog("NotchPet Codex app-server bridge: \(bridgeOK ? "started" : "failed")")
         let monitors = ["codex": "codex-remote-monitor.js"]
         for (agentId, script) in monitors where (Defaults[.enabledCodingAgents][agentId] ?? true) {
             let path = clawdDir + "/hooks/" + script
