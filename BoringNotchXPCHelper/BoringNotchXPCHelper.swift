@@ -9,6 +9,7 @@ import Foundation
 import ApplicationServices
 import IOKit
 import CoreGraphics
+import CoreServices   // Spotlight MDItem — read each app's system usage (lastUsed / useCount)
 
 class BoringNotchXPCHelper: NSObject, BoringNotchXPCHelperProtocol {
     
@@ -219,6 +220,99 @@ class BoringNotchXPCHelper: NSObject, BoringNotchXPCHelperProtocol {
         } catch {
             reply(-1, "\(error)")
         }
+    }
+
+    // Retained so the spawned monitor daemons aren't deallocated/terminated.
+    private static var daemons: [Process] = []
+
+    @objc func runNotchpetDaemon(_ scriptPath: String, args: [String], with reply: @escaping (Bool) -> Void) {
+        let s = (scriptPath as NSString).standardizingPath
+        guard isAllowedNotchPetPath(s) else { reply(false); return }
+        let scriptName = (s as NSString).lastPathComponent
+
+        // Kill any prior instance of this monitor (e.g. left over from a previous NotchPet launch).
+        let killer = Process()
+        killer.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        killer.arguments = ["-f", scriptName]
+        try? killer.run()
+        killer.waitUntilExit()
+
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        p.arguments = ["node", s] + args
+        var env = ProcessInfo.processInfo.environment
+        let extra = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+        env["PATH"] = (env["PATH"].map { $0 + ":" + extra }) ?? extra
+        p.environment = env
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        do {
+            try p.run()                 // long-lived: do NOT waitUntilExit
+            Self.daemons.append(p)
+            reply(true)
+        } catch {
+            reply(false)
+        }
+    }
+
+    // MARK: - NotchPet Launcher: enumerate installed apps (helper is NOT sandboxed)
+
+    @objc func enumerateApplications(with reply: @escaping (Data?) -> Void) {
+        let fm = FileManager.default
+        // Same roots Launchpad draws from, plus per-user apps. The helper runs unsandboxed
+        // as the user, so NSHomeDirectory() is the real home.
+        let roots = [
+            "/Applications",
+            "/Applications/Utilities",
+            "/System/Applications",
+            "/System/Applications/Utilities",
+            "/System/Library/CoreServices/Applications",
+            NSHomeDirectory() + "/Applications",
+        ]
+        var seen = Set<String>()
+        var apps: [[String: String]] = []
+
+        func scan(_ dir: String, depth: Int) {
+            guard let entries = try? fm.contentsOfDirectory(atPath: dir) else { return }
+            for entry in entries {
+                let full = (dir as NSString).appendingPathComponent(entry)
+                if entry.hasSuffix(".app") {
+                    let std = (full as NSString).standardizingPath
+                    guard seen.insert(std).inserted else { continue }
+                    var bundleId = ""
+                    var category = ""
+                    let infoURL = URL(fileURLWithPath: std + "/Contents/Info.plist")
+                    if let dict = NSDictionary(contentsOf: infoURL) {
+                        bundleId = dict["CFBundleIdentifier"] as? String ?? ""
+                        category = dict["LSApplicationCategoryType"] as? String ?? ""
+                    }
+                    // macOS's own usage stats via Spotlight, so the "常用" row matches what the
+                    // system already considers frequently/recently used.
+                    var lastUsed: Double = 0
+                    var useCount: Double = 0
+                    if let mdItem = MDItemCreate(nil, std as CFString) {
+                        if let d = MDItemCopyAttribute(mdItem, kMDItemLastUsedDate) as? Date {
+                            lastUsed = d.timeIntervalSince1970
+                        }
+                        if let n = MDItemCopyAttribute(mdItem, "kMDItemUseCount" as CFString) as? NSNumber {
+                            useCount = n.doubleValue
+                        }
+                    }
+                    apps.append([
+                        "path": std, "bundleId": bundleId, "category": category,
+                        "lastUsed": String(lastUsed), "useCount": String(useCount),
+                    ])
+                } else if depth > 0 {
+                    // One level of vendor subfolders (e.g. /Applications/SomeVendor/App.app).
+                    var isDir: ObjCBool = false
+                    if fm.fileExists(atPath: full, isDirectory: &isDir), isDir.boolValue {
+                        scan(full, depth: depth - 1)
+                    }
+                }
+            }
+        }
+        for root in roots { scan(root, depth: 1) }
+        reply(try? JSONSerialization.data(withJSONObject: apps, options: []))
     }
 
     // MARK: - Private helpers for DisplayServices / IOKit access

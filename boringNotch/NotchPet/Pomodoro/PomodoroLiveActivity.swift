@@ -3,7 +3,7 @@
 //  NotchPet
 //
 //  Compact strip shown in the CLOSED notch while a Pomodoro session is running:
-//  a small phase-tinted ring with the phase symbol + MM:SS. Driven by a
+//  a phase-tinted ring to the left of the physical notch and MM:SS to its right. Driven by a
 //  TimelineView so it ticks each second without the manager republishing.
 //
 //  The closed-notch arbiter decides *whether* to show this (see
@@ -15,12 +15,18 @@ import SwiftUI
 import Defaults
 
 struct PomodoroLiveActivity: View {
+    @EnvironmentObject var vm: BoringViewModel
     @ObservedObject var manager = PomodoroManager.shared
+    let sideLaneWidth: CGFloat
+
+    init(sideLaneWidth: CGFloat = 50) {
+        self.sideLaneWidth = sideLaneWidth
+    }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.5)) { _ in
             let tint = manager.phase.tint
-            HStack(spacing: 6) {
+            HStack(spacing: 0) {
                 ZStack {
                     Circle()
                         .stroke(Color.white.opacity(0.15), lineWidth: 2.5)
@@ -33,14 +39,21 @@ struct PomodoroLiveActivity: View {
                         .foregroundStyle(tint)
                 }
                 .frame(width: 18, height: 18)
+                .frame(width: sideLaneWidth, alignment: .trailing)
+
+                // Keep content out from behind the real camera cutout. closedNotchSize is
+                // derived from this screen's auxiliary safe areas, not a fixed assumed width.
+                Rectangle()
+                    .fill(.black)
+                    .frame(width: vm.closedNotchSize.width + 8)
 
                 Text(manager.remainingString)
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(.white)
+                    .frame(width: sideLaneWidth, alignment: .leading)
             }
-            .padding(.horizontal, 4)
-            .fixedSize()
+            .frame(height: vm.effectiveClosedNotchHeight, alignment: .center)
         }
     }
 }
@@ -50,5 +63,6 @@ struct PomodoroLiveActivity: View {
     PomodoroLiveActivity()
         .padding()
         .background(.black)
+        .environmentObject(BoringViewModel())
 }
 #endif

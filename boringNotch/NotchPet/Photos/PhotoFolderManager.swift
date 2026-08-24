@@ -57,6 +57,8 @@ final class PhotoFolderManager: ObservableObject {
 
     /// Whether we have started accessing the security-scoped resource (so we can balance the call).
     private var isAccessingScope = false
+    /// Only the latest enumeration pass may publish results.
+    private var enumerationGeneration = UUID()
 
     private init() {
         resolveStoredFolder()
@@ -104,12 +106,14 @@ final class PhotoFolderManager: ObservableObject {
 
     /// Forget the chosen folder and clear all loaded photos.
     func clearFolder() {
+        enumerationGeneration = UUID()
         releaseCurrentScope()
         Defaults[.photosFolderBookmark] = Data()
         Defaults[.photosFolderPath] = ""
         folderURL = nil
         photos = []
         errorMessage = nil
+        isLoading = false
     }
 
     /// Re-run enumeration against the current folder (e.g. after the user adds files).
@@ -175,6 +179,8 @@ final class PhotoFolderManager: ObservableObject {
 
     /// Enumerate image files in `folder` off the main actor, then publish results.
     private func enumerate(folder: URL) {
+        let generation = UUID()
+        enumerationGeneration = generation
         isLoading = true
         errorMessage = nil
         let recursive = Defaults[.photosRecursive]
@@ -183,6 +189,8 @@ final class PhotoFolderManager: ObservableObject {
         Task.detached(priority: .userInitiated) {
             let found = Self.scan(folder: folder, recursive: recursive, allowed: allowed)
             await MainActor.run {
+                guard self.enumerationGeneration == generation,
+                      self.folderURL == folder else { return }
                 self.photos = found
                 self.isLoading = false
                 // An empty result is a valid state; the view shows its own "no images" message.

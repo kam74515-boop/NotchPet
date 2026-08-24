@@ -28,9 +28,8 @@ enum MultiAgentInstaller {
     /// Every coding tool clawd-on-desk ships an installer for (Claude Code excluded —
     /// it's handled by HookInstaller's own forwarder).
     static let agents: [CodingAgentDef] = [
-        // Claude Code uses clawd's rich installer too, so we get the real conversation
-        // title (computed from the transcript) and consistent session ids.
-        CodingAgentDef(id: "claude-code", installer: "install.js", defaultEnabled: true),
+        // Claude Code is intentionally NOT here — it uses HookInstaller's own self-contained
+        // forwarder (curl → our port), so its monitoring never depends on clawd-on-desk.
         CodingAgentDef(id: "codex", installer: "codex-install.js", defaultEnabled: true),
         CodingAgentDef(id: "cursor", installer: "cursor-install.js", defaultEnabled: true),
         CodingAgentDef(id: "gemini", installer: "gemini-install.js", defaultEnabled: true),
@@ -73,9 +72,8 @@ enum MultiAgentInstaller {
     /// preserve the user's existing config.
     static func installEnabled() async {
         guard await materialize() else { return }
-        // Remove the old dumb Claude forwarder (notchpet-hook.sh) so Claude only uses
-        // clawd's rich hook (real titles), avoiding double-posting.
-        _ = await HookInstaller.uninstall()
+        // NOTE: Claude Code is handled separately by HookInstaller (self-contained forwarder);
+        // we do NOT touch it here.
         for a in agents where isEnabled(a) {
             let script = clawdDir + "/hooks/" + a.installer
             let (code, out) = await XPCHelperClient.shared.runNotchpetNode(script, args: [])
@@ -86,6 +84,33 @@ enum MultiAgentInstaller {
 
     static func installIfNeeded() async {
         if !Defaults[.multiAgentHooksMaterialized] { await installEnabled() }
+    }
+
+    /// Desktop coding apps (Codex, …) DON'T fire the CLI hooks — they only write session logs.
+    /// clawd captures them by polling those logs, so start the matching long-lived monitor
+    /// daemons (they post to our listener at 24333). Idempotent: the helper kills any prior copy.
+    static func startMonitors() async {
+        guard await materialize() else { return }
+        let monitors = ["codex": "codex-remote-monitor.js"]
+        for (agentId, script) in monitors where (Defaults[.enabledCodingAgents][agentId] ?? true) {
+            let path = clawdDir + "/hooks/" + script
+            let ok = await XPCHelperClient.shared.runNotchpetDaemon(path, args: [])
+            NSLog("NotchPet monitor \(agentId): \(ok ? "started" : "failed")")
+        }
+    }
+
+    /// Install Claude Code monitoring using clawd's SELF-CONTAINED vendored installer
+    /// (`install.js` → `np-clawd-hook.js` under ~/.notchpet, node-based). This gives real
+    /// conversation titles, context-usage, and one stable session per conversation — WITHOUT
+    /// needing the Clawd on Desk app. First strips any real-clawd-app leftovers so NotchPet
+    /// fully owns Claude Code monitoring and clawd is never auto-launched.
+    @discardableResult
+    static func installClaude() async -> Bool {
+        guard await materialize() else { return false }
+        await HookInstaller.stripClawdAppHooks()
+        let (code, out) = await XPCHelperClient.shared.runNotchpetNode(clawdDir + "/hooks/install.js", args: [])
+        NSLog("NotchPet install claude (install.js): exit \(code) — \(out.prefix(200))")
+        return code == 0
     }
 
     @discardableResult

@@ -58,6 +58,9 @@ struct SettingsView: View {
                     NavigationLink(value: "Components") {
                         Label("Components", systemImage: "square.grid.2x2")
                     }
+                    NavigationLink(value: "Home Widgets") {
+                        Label("Home Widgets", systemImage: "house.fill")
+                    }
                     NavigationLink(value: "AI Agents") {
                         Label("AI Agents", systemImage: "cpu")
                     }
@@ -121,6 +124,8 @@ struct SettingsView: View {
                     Shortcuts()
                 case "Components":
                     ModuleCustomizationView()
+                case "Home Widgets":
+                    HomeWidgetCustomizationView()
                 case "AI Agents":
                     AgentSyncSettingsView()
                 case "Pomodoro":
@@ -199,10 +204,27 @@ struct GeneralSettings: View {
     @Default(.automaticallySwitchDisplay) var automaticallySwitchDisplay
     @Default(.enableGestures) var enableGestures
     @Default(.openNotchOnHover) var openNotchOnHover
-    
+    @ObservedObject private var localization = LocalizationManager.shared
+
 
     var body: some View {
         Form {
+            Section {
+                Picker(selection: Binding(
+                    get: { localization.language },
+                    set: { localization.setLanguage($0) }
+                )) {
+                    ForEach(localization.languages) { lang in
+                        Text(lang.code == "system" ? String(localized: "Follow system") : lang.nativeName)
+                            .tag(lang.code)
+                    }
+                } label: {
+                    Text("Language")
+                }
+            } header: {
+                Text("Language")
+            }
+
             Section {
                 Toggle(isOn: Binding(
                     get: { Defaults[.menubarIcon] },
@@ -652,6 +674,25 @@ struct Media: View {
     @Default(.sneakPeekStyles) var sneakPeekStyles
 
     @Default(.enableLyrics) var enableLyrics
+    @Default(.showFloatingLyrics) private var showFloatingLyrics
+    @Default(.floatingLyricsColorData) private var floatingLyricsColorData
+    @Default(.floatingLyricsFontSize) private var floatingLyricsFontSize
+    @Default(.defaultMusicAppBundleID) var defaultMusicApp
+
+    /// Known music apps that are actually installed, plus the current selection if it's something
+    /// custom, so the Picker always has a valid tag to show.
+    private var installedMusicApps: [MusicManager.KnownMusicApp] {
+        let workspace = NSWorkspace.shared
+        var apps = MusicManager.knownMusicApps.filter {
+            workspace.urlForApplication(withBundleIdentifier: $0.bundleID) != nil
+        }
+        if !apps.contains(where: { $0.bundleID == defaultMusicApp }) {
+            let name = workspace.urlForApplication(withBundleIdentifier: defaultMusicApp)?
+                .deletingPathExtension().lastPathComponent ?? defaultMusicApp
+            apps.append(.init(bundleID: defaultMusicApp, name: name))
+        }
+        return apps
+    }
 
     var body: some View {
         Form {
@@ -730,6 +771,20 @@ struct Media: View {
             }
             
             Section {
+                Picker("Default music app", selection: $defaultMusicApp) {
+                    ForEach(installedMusicApps) { app in
+                        Text(app.name).tag(app.bundleID)
+                    }
+                }
+            } header: {
+                Text("Default music app")
+            } footer: {
+                Text("Opened from Play or the album-art button when nothing is playing.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 MusicSlotConfigurationView()
                 Defaults.Toggle(key: .enableLyrics) {
                     HStack {
@@ -737,6 +792,29 @@ struct Media: View {
                         customBadge(text: "Beta")
                     }
                 }
+                Defaults.Toggle(key: .showFloatingLyrics) {
+                    HStack {
+                        Text("Show lyrics below the notch")
+                        customBadge(text: "Beta")
+                    }
+                }
+                ColorPicker(
+                    "Floating lyrics color",
+                    selection: floatingLyricsColorBinding,
+                    supportsOpacity: false
+                )
+                .disabled(!showFloatingLyrics)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Floating lyrics size")
+                        Spacer()
+                        Text("\(Int(floatingLyricsFontSize)) pt")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    Slider(value: $floatingLyricsFontSize, in: 12...24, step: 1)
+                }
+                .disabled(!showFloatingLyrics)
             } header: {
                 Text("Media controls")
             }  footer: {
@@ -747,6 +825,27 @@ struct Media: View {
         }
         .accentColor(.effectiveAccent)
         .navigationTitle("Media")
+    }
+
+    private var floatingLyricsColorBinding: Binding<Color> {
+        Binding(
+            get: {
+                guard let data = floatingLyricsColorData,
+                      let color = try? NSKeyedUnarchiver.unarchivedObject(
+                        ofClass: NSColor.self,
+                        from: data
+                      ) else {
+                    return .white
+                }
+                return Color(nsColor: color)
+            },
+            set: { color in
+                floatingLyricsColorData = try? NSKeyedArchiver.archivedData(
+                    withRootObject: NSColor(color),
+                    requiringSecureCoding: false
+                )
+            }
+        )
     }
 
     // Only show controller options that are available on this macOS version
@@ -981,6 +1080,9 @@ struct Shelf: View {
             Section {
                 Defaults.Toggle(key: .boringShelf) {
                     Text("Enable shelf")
+                }
+                Defaults.Toggle(key: .notchDropAirDrop) {
+                    Text("Drop on notch starts AirDrop")
                 }
                 Defaults.Toggle(key: .openShelfByDefault) {
                     Text("Open shelf by default if items are present")

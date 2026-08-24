@@ -124,7 +124,7 @@ struct WeatherView: View {
                 Text(manager.formattedTemperature(current.temperature))
                     .font(.system(size: 26, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
-                Text(current.condition)
+                Text(LocalizedStringKey(current.condition))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white.opacity(0.7))
                     .lineLimit(1)

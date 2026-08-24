@@ -12,8 +12,7 @@
 //    boundary we re-arm the next batch. This survives sleep (we always recompute from
 //    Date(), never decrement a counter) and we keep a healthy buffer of pending fires
 //    so the chain keeps going even if the app is closed for a while.
-//  - Sleep is a single fixed time-of-day reminder; we schedule the next occurrence as
-//    a one-shot and re-arm it when it (would have) fired.
+//  - Sleep is a fixed time-of-day reminder backed by a repeating calendar trigger.
 //  - All scheduling goes through NotificationManager.shared. Ids are stable so we can
 //    cancel/replace cleanly. Interval reminders use indexed ids (e.g.
 //    "notchpet.reminder.water.3") because the system needs distinct ids per one-shot.
@@ -37,17 +36,17 @@ enum HealthReminderKind: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .water:   return "喝水提醒"
-        case .posture: return "久坐提醒"
-        case .sleep:   return "睡眠提醒"
+        case .water:   return String(localized: "Time to drink water")
+        case .posture: return String(localized: "Time to move")
+        case .sleep:   return String(localized: "Bedtime reminder")
         }
     }
 
     var body: String {
         switch self {
-        case .water:   return "起来喝口水，给身体补充水分 💧"
-        case .posture: return "你已经坐了一会儿，站起来活动一下 🧍"
-        case .sleep:   return "该准备休息了，早睡身体好 😴"
+        case .water:   return String(localized: "Get up and drink some water to stay hydrated 💧")
+        case .posture: return String(localized: "You've been sitting a while — stand up and move around 🧍")
+        case .sleep:   return String(localized: "Time to wind down — an early night is good for you 😴")
         }
     }
 
@@ -80,11 +79,13 @@ final class HealthReminderManager: ObservableObject {
     /// How many one-shot fires we keep queued ahead for interval reminders.
     /// Notification center allows up to 64 pending requests total; we stay well under.
     private let lookaheadCount = 12
+    private let refillThreshold = 4
 
     private var cancellables = Set<AnyCancellable>()
 
     private init() {
         observeDefaults()
+        startRefillMonitor()
     }
 
     // MARK: Public API
@@ -129,10 +130,14 @@ final class HealthReminderManager: ObservableObject {
         var fireDate = now.addingTimeInterval(step)
         var scheduled = 0
         var guardCounter = 0
+        // A narrow active window combined with a one-minute interval can require walking
+        // across multiple days before twelve valid fire dates are found.
+        let stepsPerDay = (24 * 60 / intervalMinutes) + 1
+        let maxIterations = max(lookaheadCount * 8, stepsPerDay * lookaheadCount)
         // Walk forward, emitting one-shot fires that land inside the active window,
         // skipping any that fall in quiet hours. Cap iterations so a tiny window
         // can't loop forever.
-        while scheduled < lookaheadCount && guardCounter < lookaheadCount * 8 {
+        while scheduled < lookaheadCount && guardCounter < maxIterations {
             guardCounter += 1
             if isWithinActiveHours(fireDate) {
                 let delay = fireDate.timeIntervalSince(now)
@@ -154,14 +159,12 @@ final class HealthReminderManager: ObservableObject {
     // MARK: Sleep scheduling (fixed time-of-day)
 
     private func scheduleSleep() {
-        let next = nextOccurrence(hour: Defaults[.sleepHour], minute: Defaults[.sleepMinute])
-        let delay = next.timeIntervalSinceNow
-        guard delay >= 1 else { return }
-        NotificationManager.shared.schedule(
+        NotificationManager.shared.scheduleDaily(
             id: HealthReminderKind.sleep.notificationIDPrefix,
             title: HealthReminderKind.sleep.title,
             body: HealthReminderKind.sleep.body,
-            after: delay,
+            hour: Defaults[.sleepHour],
+            minute: Defaults[.sleepMinute],
             sound: soundEnabled
         )
     }
@@ -189,18 +192,6 @@ final class HealthReminderManager: ObservableObject {
         case .posture: return Defaults[.postureIntervalMinutes]
         case .sleep:   return 0
         }
-    }
-
-    /// The next absolute Date at the given local hour/minute (today if still ahead, else tomorrow).
-    private func nextOccurrence(hour: Int, minute: Int) -> Date {
-        let cal = Calendar.current
-        let now = Date()
-        var comps = cal.dateComponents([.year, .month, .day], from: now)
-        comps.hour = hour
-        comps.minute = minute
-        comps.second = 0
-        let candidate = cal.date(from: comps) ?? now
-        return candidate > now ? candidate : (cal.date(byAdding: .day, value: 1, to: candidate) ?? candidate)
     }
 
     /// True if `date`'s local time is inside the active-hours window (outside quiet hours).
@@ -252,6 +243,25 @@ final class HealthReminderManager: ObservableObject {
                 Task { @MainActor in self?.rearm() }
             }
             .store(in: &cancellables)
+    }
+
+    /// Replenish interval reminders before the finite one-shot queue runs dry. Re-arming only
+    /// when four or fewer requests remain preserves the existing cadence instead of pushing it
+    /// forward on every timer tick.
+    private func startRefillMonitor() {
+        Timer.publish(every: 60, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in self?.refillIntervalsIfNeeded() }
+            .store(in: &cancellables)
+    }
+
+    private func refillIntervalsIfNeeded() {
+        for kind in HealthReminderKind.allCases where kind.isIntervalBased && isEnabled(kind) {
+            NotificationManager.shared.pendingRequestCount(withPrefix: kind.notificationIDPrefix) { [weak self] count in
+                guard let self, self.isEnabled(kind), count <= self.refillThreshold else { return }
+                self.reschedule(kind)
+            }
+        }
     }
 }
 

@@ -29,6 +29,14 @@ import Foundation
     // per-agent installers for Codex/Cursor/Gemini/etc.
     func extractNotchpetArchive(_ archivePath: String, toDir: String, with reply: @escaping (Bool) -> Void)
     func runNotchpetNode(_ scriptPath: String, args: [String], with reply: @escaping (Int32, String) -> Void)
+    // NotchPet Launcher: enumerate installed applications (the sandboxed main app can't read
+    // /Applications). Returns JSON-encoded [[String:String]] with keys path/bundleId/category
+    // (category = the app's LSApplicationCategoryType). The main app loads icons/names itself.
+    func enumerateApplications(with reply: @escaping (Data?) -> Void)
+    // NotchPet: start a long-lived node DAEMON (e.g. codex-remote-monitor.js that polls
+    // ~/.codex/sessions and posts to our listener). Restricted to ~/.notchpet. Kills any prior
+    // instance of the same script first, then launches detached and returns immediately.
+    func runNotchpetDaemon(_ scriptPath: String, args: [String], with reply: @escaping (Bool) -> Void)
 }
 
 /*

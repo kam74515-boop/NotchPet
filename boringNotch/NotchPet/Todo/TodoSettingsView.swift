@@ -22,7 +22,7 @@ struct TodoSettingsView: View {
 
                 Picker("Default sort", selection: $sort) {
                     ForEach(TodoSort.allCases, id: \.self) { option in
-                        Text(option.label).tag(option)
+                        Text(LocalizedStringKey(option.label)).tag(option)
                     }
                 }
             } header: {

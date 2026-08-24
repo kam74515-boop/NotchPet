@@ -285,6 +285,36 @@ final class XPCHelperClient: NSObject {
         }
     }
 
+    /// Enumerate installed applications via the non-sandboxed helper. Returns JSON-encoded
+    /// [[String:String]] (keys: path, bundleId, category) or nil on failure.
+    nonisolated func enumerateApplications() async -> Data? {
+        do {
+            let service = await MainActor.run { ensureRemoteService() }
+            return try await service.withContinuation { service, continuation in
+                service.enumerateApplications { data in
+                    continuation.resume(returning: data)
+                }
+            }
+        } catch {
+            return nil
+        }
+    }
+
+    /// Start a long-lived node monitor daemon via the helper (returns once launched).
+    @discardableResult
+    nonisolated func runNotchpetDaemon(_ scriptPath: String, args: [String]) async -> Bool {
+        do {
+            let service = await MainActor.run { ensureRemoteService() }
+            return try await service.withContinuation { service, continuation in
+                service.runNotchpetDaemon(scriptPath, args: args) { ok in
+                    continuation.resume(returning: ok)
+                }
+            }
+        } catch {
+            return false
+        }
+    }
+
     @discardableResult
     nonisolated func runNotchpetNode(_ scriptPath: String, args: [String]) async -> (Int32, String) {
         do {

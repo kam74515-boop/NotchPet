@@ -31,6 +31,13 @@ struct ContentView: View {
     @State private var isHovering: Bool = false
     @State private var anyDropDebounceTask: Task<Void, Never>?
 
+    /// While an AskUserQuestion or permission request is waiting in the notch, keep it pinned open so
+    /// moving the mouse away doesn't close it (and never flickers). It persists until the user answers
+    /// or taps "Go to terminal" — neither of which is triggered by hovering away or a timeout.
+    private var pinnedOpenForAgent: Bool {
+        agentCoordinator.pendingClarification != nil || agentCoordinator.pendingPermission != nil
+    }
+
     @State private var gestureProgress: CGFloat = .zero
 
     @State private var haptics: Bool = false
@@ -40,6 +47,33 @@ struct ContentView: View {
     @Default(.useMusicVisualizer) var useMusicVisualizer
 
     @Default(.showNotHumanFace) var showNotHumanFace
+
+    @Default(.enableLyrics) var enableLyrics
+    @Default(.showFloatingLyrics) var showFloatingLyrics
+
+    /// The translucent synced-lyric caption floats below the CLOSED notch only while an actual music
+    /// app is playing and we have time-stamped lyrics. Gating on a music-app whitelist keeps random
+    /// Now Playing sources (browser video, podcasts, system sounds) from showing meaningless lyrics.
+    private var showFloatingLyricsCaption: Bool {
+        vm.notchState == .closed && !vm.hideOnClosed
+            && coordinator.musicLiveActivityEnabled
+            && enableLyrics && showFloatingLyrics
+            && musicManager.isPlaying && !musicManager.syncedLyrics.isEmpty
+            && isMusicApp(musicManager.bundleIdentifier)
+    }
+
+    /// True only for dedicated music players (Apple Music, Spotify, NetEase 云音乐, QQ 音乐, YouTube
+    /// Music, …). Browsers and video/podcast apps report Now Playing too, but lyrics are pointless
+    /// there — so we require the source to actually be a music app.
+    private func isMusicApp(_ bundleID: String?) -> Bool {
+        guard let id = bundleID?.lowercased(), !id.isEmpty else { return false }
+        if id.contains("music") { return true }   // apple.Music, netease.163music, tencent.QQMusicMac, youtube-music
+        let known: Set<String> = [
+            "com.spotify.client", "com.apple.itunes", "com.tidal.desktop",
+            "org.clementine-player.clementine", "com.plexamp", "com.roon.roon", "cn.kuwo.mac",
+        ]
+        return known.contains(id)
+    }
 
     // Shared interactive spring for movement/resizing to avoid conflicting animations
     private let animationSpring = Animation.interactiveSpring(response: 0.38, dampingFraction: 0.8, blendDuration: 0)
@@ -77,7 +111,10 @@ struct ContentView: View {
         {
             chinWidth += (2 * max(0, vm.effectiveClosedNotchHeight - 12) + 20)
         } else if showPomodoroActivity {
-            chinWidth += (2 * max(0, vm.effectiveClosedNotchHeight - 12) + 20)
+            // Match PomodoroLiveActivity's two side lanes plus its physical-notch spacer.
+            chinWidth = vm.closedNotchSize.width + 8
+                + 2 * pomodoroActivityLaneWidth
+                + 2 * cornerRadiusInsets.closed.bottom
         } else if !coordinator.expandingView.show && vm.notchState == .closed
             && (!musicManager.isPlaying && musicManager.isPlayerIdle) && Defaults[.showNotHumanFace]
             && !vm.hideOnClosed
@@ -86,6 +123,12 @@ struct ContentView: View {
         }
 
         return chinWidth
+    }
+
+    /// Wide enough for the longest supported countdown (120:00), while still scaling with
+    /// unusually tall custom notch settings.
+    private var pomodoroActivityLaneWidth: CGFloat {
+        max(50, max(0, vm.effectiveClosedNotchHeight - 12))
     }
 
     // MARK: - NotchPet closed-notch activities (only when music is idle)
@@ -198,6 +241,24 @@ struct ContentView: View {
                             }
                         }
                     }
+                    .onChange(of: agentCoordinator.pendingPermission?.id) { _, newID in
+                        // A tool-permission request arrived — expand the notch and show it inside.
+                        guard newID != nil else { scheduleAgentAutoClose(); return }
+                        coordinator.currentView = .agents
+                        doOpen()
+                    }
+                    .onChange(of: agentCoordinator.pendingClarification?.id) { _, newID in
+                        // An AskUserQuestion arrived — expand the notch to answer it inside.
+                        guard newID != nil else { scheduleAgentAutoClose(); return }
+                        coordinator.currentView = .agents
+                        doOpen()
+                    }
+                    .onChange(of: agentStore.displayState) { _, state in
+                        // An agent needs the user (clarification / waiting) — expand and show.
+                        guard state == .notification else { return }
+                        coordinator.currentView = .agents
+                        doOpen()
+                    }
                     .onChange(of: vm.isBatteryPopoverActive) {
                         if !vm.isBatteryPopoverActive && !isHovering && vm.notchState == .open && !SharingStateManager.shared.preventNotchClose {
                             hoverTask?.cancel()
@@ -232,7 +293,18 @@ struct ContentView: View {
                         .frame(width: computedChinWidth, height: vm.chinHeight)
                 }
             }
+
+            // Translucent synced-lyric caption floating below the CLOSED notch. It lives in the
+            // transparent window area under the notch strip, is click-through, and scrolls with the
+            // song. Toggle it off from the notch's music player.
+            if showFloatingLyricsCaption {
+                FloatingLyricsView()
+                    .padding(.top, vm.effectiveClosedNotchHeight + 6)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+            }
         }
+        .animation(.easeInOut(duration: 0.3), value: showFloatingLyricsCaption)
         .padding(.bottom, 8)
         .frame(maxWidth: windowSize.width, maxHeight: windowSize.height, alignment: .top)
         .compositingGroup()
@@ -325,7 +397,7 @@ struct ContentView: View {
                           MusicLiveActivity()
                               .frame(alignment: .center)
                       } else if showPomodoroActivity {
-                          PomodoroLiveActivity()
+                          PomodoroLiveActivity(sideLaneWidth: pomodoroActivityLaneWidth)
                               .frame(alignment: .center)
                       } else if !coordinator.expandingView.show && vm.notchState == .closed && (!musicManager.isPlaying && musicManager.isPlayerIdle) && Defaults[.showNotHumanFace] && !vm.hideOnClosed  {
                           BoringFaceAnimation()
@@ -543,13 +615,28 @@ struct ContentView: View {
 
     @ViewBuilder
     var dragDetector: some View {
-        if Defaults[.boringShelf] && vm.notchState == .closed {
-            Color.clear
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        if (Defaults[.boringShelf] || Defaults[.notchDropAirDrop]) && vm.notchState == .closed {
+            Group {
+                if Defaults[.notchDropAirDrop] {
+                    // AirDrop must be triggered at the PHYSICAL notch, not the whole top strip.
+                    Color.clear.frame(width: vm.closedNotchSize.width, height: max(vm.closedNotchSize.height, 24))
+                } else {
+                    Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
                 .contentShape(Rectangle())
         .onDrop(of: [.fileURL, .url, .utf8PlainText, .plainText, .data], isTargeted: $vm.dragDetectorTargeting) { providers in
             vm.dropEvent = true
-            ShelfStateViewModel.shared.load(providers)
+            if Defaults[.notchDropAirDrop] {
+                // Drop on the notch → start AirDrop right away (the shelf is still reachable by
+                // opening the notch and dropping on the Shelf tab).
+                Task { @MainActor in
+                    let provider = QuickShareProvider.defaultProvider   // AirDrop when available
+                    await QuickShareService.shared.shareDroppedFiles(providers, using: provider, from: nil)
+                }
+            } else {
+                ShelfStateViewModel.shared.load(providers)
+            }
             return true
         }
         } else {
@@ -564,6 +651,23 @@ struct ContentView: View {
     }
 
     // MARK: - Hover Management
+
+    /// A pinned-open clarification/permission was just resolved (answered here OR elsewhere, e.g. the
+    /// terminal). Since it was force-opened, retract the notch — unless the user is hovering it or
+    /// something else still needs it open.
+    private func scheduleAgentAutoClose() {
+        hoverTask?.cancel()
+        hoverTask = Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard self.vm.notchState == .open, !self.isHovering, !self.pinnedOpenForAgent,
+                      !self.vm.isBatteryPopoverActive, !SharingStateManager.shared.preventNotchClose
+                else { return }
+                self.vm.close()
+            }
+        }
+    }
 
     private func handleHover(_ hovering: Bool) {
         if coordinator.firstLaunch { return }
@@ -604,7 +708,7 @@ struct ContentView: View {
                         self.isHovering = false
                     }
                     
-                    if self.vm.notchState == .open && !self.vm.isBatteryPopoverActive && !SharingStateManager.shared.preventNotchClose {
+                    if self.vm.notchState == .open && !self.vm.isBatteryPopoverActive && !SharingStateManager.shared.preventNotchClose && !self.pinnedOpenForAgent {
                         self.vm.close()
                     }
                 }

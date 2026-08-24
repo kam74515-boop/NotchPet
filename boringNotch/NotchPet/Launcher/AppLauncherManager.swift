@@ -40,6 +40,8 @@ extension Defaults.Keys {
     static let launcherFavorites = Key<[LauncherFavorite]>("notchpet.launcher.favorites", default: [])
     /// Show app names beneath icons in the grid.
     static let launcherShowLabels = Key<Bool>("notchpet.launcher.showLabels", default: true)
+    /// Recently-launched app paths, most-recent first (the "最近" history, like macOS's Apps page).
+    static let launcherRecents = Key<[String]>("notchpet.launcher.recents", default: [])
 }
 
 // MARK: - Resolved runtime item
@@ -53,6 +55,117 @@ struct LauncherItem: Identifiable, Hashable {
     let icon: NSImage
 
     static func == (lhs: LauncherItem, rhs: LauncherItem) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
+
+// MARK: - Launchpad-style "all apps" model
+
+/// The macOS-Tahoe "应用程序" category buckets. Order = the pill order shown in the UI.
+/// A pill is only rendered when its bucket is non-empty.
+enum AppCategory: String, CaseIterable, Identifiable, Hashable {
+    case productivityFinance
+    case developerTools
+    case social
+    case utilities
+    case entertainment
+    case creativity
+    case other
+
+    var id: String { rawValue }
+
+    /// English keys — localized at render time via LocalizedStringKey (see LauncherView pills).
+    var label: String {
+        switch self {
+        case .productivityFinance: return "Productivity & Finance"
+        case .developerTools:      return "Developer Tools"
+        case .social:              return "Social"
+        case .utilities:           return "Utilities"
+        case .entertainment:       return "Entertainment"
+        case .creativity:          return "Creativity"
+        case .other:               return "Other"
+        }
+    }
+
+    /// Map an app's `LSApplicationCategoryType` to a bucket (matches the native grouping).
+    init(lsType raw: String) {
+        let t = raw.replacingOccurrences(of: "public.app-category.", with: "")
+        switch t {
+        case "productivity", "business", "finance":
+            self = .productivityFinance
+        case "developer-tools":
+            self = .developerTools
+        case "social-networking":
+            self = .social
+        case "utilities":
+            self = .utilities
+        case "entertainment", "music", "video":
+            self = .entertainment
+        case "photography", "graphics-design":
+            self = .creativity
+        default:
+            self = (t == "games" || t.hasSuffix("-games")) ? .entertainment : .other
+        }
+    }
+
+    /// System apps often ship with NO `LSApplicationCategoryType`, so they'd all fall into 其他.
+    /// Pre-classify them (mirroring how macOS groups its bundled tools) using the install path and
+    /// a small map of known Apple bundle ids, falling back to the declared category.
+    static func classify(lsType: String, path: String, bundleId: String) -> AppCategory {
+        let declared = AppCategory(lsType: lsType)
+        // A real, non-default declared category always wins.
+        if !lsType.isEmpty && declared != .other { return declared }
+
+        // Anything in a *Utilities* folder or CoreServices is a system tool.
+        if path.contains("/Utilities/") || path.contains("/CoreServices/") { return .utilities }
+
+        if let mapped = appleBundleCategories[bundleId] { return mapped }
+        return declared
+    }
+
+    /// Curated categories for common Apple apps that declare no LSApplicationCategoryType.
+    private static let appleBundleCategories: [String: AppCategory] = [
+        // System tools → 工具
+        "com.apple.Terminal": .utilities, "com.apple.ActivityMonitor": .utilities,
+        "com.apple.DiskUtility": .utilities, "com.apple.systempreferences": .utilities,
+        "com.apple.Console": .utilities, "com.apple.ScriptEditor2": .utilities,
+        "com.apple.keychainaccess": .utilities, "com.apple.airport.airportutility": .utilities,
+        "com.apple.AirPortBaseStationAgent": .utilities, "com.apple.calculator": .utilities,
+        "com.apple.audio.AudioMIDISetup": .utilities, "com.apple.ColorSyncUtility": .utilities,
+        "com.apple.DigitalColorMeter": .utilities, "com.apple.grapher": .utilities,
+        "com.apple.bluetoothfileexchange": .utilities, "com.apple.VoiceOverUtility": .utilities,
+        "com.apple.MigrateAssistant": .utilities, "com.apple.ScreenSharing": .utilities,
+        "com.apple.screenshot.launcher": .utilities, "com.apple.Home": .utilities,
+        "com.apple.print.PrinterProxy": .utilities, "com.apple.FontBook": .utilities,
+        "com.apple.PhotoBooth": .creativity,
+        // Productivity / finance → 效率与财务
+        "com.apple.Notes": .productivityFinance, "com.apple.iCal": .productivityFinance,
+        "com.apple.reminders": .productivityFinance, "com.apple.Stickies": .productivityFinance,
+        "com.apple.freeform": .productivityFinance, "com.apple.Dictionary": .productivityFinance,
+        "com.apple.iWork.Pages": .productivityFinance, "com.apple.iWork.Numbers": .productivityFinance,
+        "com.apple.iWork.Keynote": .productivityFinance, "com.apple.stocks": .productivityFinance,
+        // Social → 社交
+        "com.apple.MobileSMS": .social, "com.apple.FaceTime": .social, "com.apple.mail": .social,
+        // Entertainment → 娱乐
+        "com.apple.Music": .entertainment, "com.apple.TV": .entertainment,
+        "com.apple.podcasts": .entertainment, "com.apple.QuickTimePlayerX": .entertainment,
+        "com.apple.Chess": .entertainment, "com.apple.news": .entertainment,
+        // Creativity → 创意
+        "com.apple.Photos": .creativity, "com.apple.Preview": .creativity,
+        "com.apple.garageband10": .creativity, "com.apple.iMovieApp": .creativity,
+    ]
+}
+
+/// One installed application for the Launchpad-style grid (resolved icon + bucket).
+struct LauncherAppEntry: Identifiable, Hashable {
+    let id: String      // file path (stable, unique)
+    let url: URL
+    let name: String
+    let icon: NSImage
+    let category: AppCategory
+    let lastUsed: Double // macOS Spotlight kMDItemLastUsedDate (epoch); 0 if never/unknown
+    let useCount: Double // macOS Spotlight kMDItemUseCount; 0 if unknown
+
+    static func == (lhs: LauncherAppEntry, rhs: LauncherAppEntry) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
@@ -96,8 +209,13 @@ final class AppLauncherManager: ObservableObject {
 
     /// Resolved, ready-to-render favorites (mirrors `Defaults[.launcherFavorites]`).
     @Published private(set) var items: [LauncherItem] = []
+    /// All installed apps for the Launchpad-style grid (loaded via the non-sandboxed helper).
+    @Published private(set) var allApps: [LauncherAppEntry] = []
+    /// True while the helper enumeration is in flight (drives the loading state).
+    @Published private(set) var isLoadingApps = false
     /// Transient user-facing error (e.g. a bookmark that no longer resolves).
     @Published var lastError: String?
+    private var didLoadAllApps = false
 
     /// Bookmarks we are actively accessing, so we can balance start/stop calls.
     private var activeScopedURLs: [UUID: URL] = [:]
@@ -293,6 +411,79 @@ final class AppLauncherManager: ObservableObject {
         favorites.move(fromOffsets: source, toOffset: destination)
         Defaults[.launcherFavorites] = favorites
         reload()
+    }
+
+    // MARK: All-apps enumeration (Launchpad-style)
+
+    /// Load every installed app via the non-sandboxed helper (the sandboxed main app can't
+    /// read /Applications), resolving each icon/name locally and bucketing by category.
+    func loadAllApps(force: Bool = false) async {
+        if didLoadAllApps && !force && !allApps.isEmpty { return }
+        isLoadingApps = true
+        lastError = nil
+        defer { isLoadingApps = false }
+
+        guard let data = await XPCHelperClient.shared.enumerateApplications(),
+              let raw = (try? JSONSerialization.jsonObject(with: data)) as? [[String: String]] else {
+            lastError = "Couldn't load installed applications."
+            return
+        }
+
+        var entries: [LauncherAppEntry] = []
+        var seen = Set<String>()
+        for item in raw {
+            guard let path = item["path"], seen.insert(path).inserted else { continue }
+            let url = URL(fileURLWithPath: path)
+            let name = bestName(for: url, fallback: url.deletingPathExtension().lastPathComponent)
+            let icon = NSWorkspace.shared.icon(forFile: path)
+            icon.size = NSSize(width: 44, height: 44)
+            entries.append(LauncherAppEntry(
+                id: path, url: url, name: name, icon: icon,
+                category: AppCategory.classify(
+                    lsType: item["category"] ?? "", path: path, bundleId: item["bundleId"] ?? ""),
+                lastUsed: Double(item["lastUsed"] ?? "0") ?? 0,
+                useCount: Double(item["useCount"] ?? "0") ?? 0))
+        }
+        entries.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        allApps = entries
+        didLoadAllApps = true
+    }
+
+    /// Recently-launched apps, most-recent first (resolved against the loaded app list).
+    var recentApps: [LauncherAppEntry] {
+        let byPath = Dictionary(uniqueKeysWithValues: allApps.map { ($0.id, $0) })
+        return Defaults[.launcherRecents].compactMap { byPath[$0] }
+    }
+
+    /// Apps macOS ITSELF considers most-used — sorted by Spotlight use-count, then recency — so
+    /// the "常用" row mirrors the system's own frequently/recently-used apps.
+    var systemFrequentApps: [LauncherAppEntry] {
+        allApps
+            .filter { $0.useCount > 0 || $0.lastUsed > 0 }
+            .sorted {
+                $0.useCount != $1.useCount ? $0.useCount > $1.useCount : $0.lastUsed > $1.lastUsed
+            }
+    }
+
+    /// Record an app as recently used (most-recent first, de-duplicated, capped).
+    private func recordRecent(_ path: String) {
+        var recents = Defaults[.launcherRecents]
+        recents.removeAll { $0 == path }
+        recents.insert(path, at: 0)
+        Defaults[.launcherRecents] = Array(recents.prefix(16))
+    }
+
+    /// Launch an app directly by URL (used by the all-apps grid).
+    func launch(url: URL) {
+        recordRecent(url.standardizedFileURL.path)
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration) { [weak self] _, error in
+            guard let error else { return }
+            Task { @MainActor in
+                self?.lastError = "Couldn't open app: \(error.localizedDescription)"
+            }
+        }
     }
 
     // MARK: Launch

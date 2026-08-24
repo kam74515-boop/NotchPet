@@ -42,8 +42,8 @@ struct AgentLiveActivity: View {
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(.secondary)
                 }
-                if let pct = store.displaySession?.contextPercent {
-                    Text("\(Int(pct))%")
+                if let remain = store.displaySession?.contextRemainingPercent {
+                    Text("\(remain)%")   // context remaining
                         .font(.system(size: 9))
                         .foregroundStyle(.secondary)
                 }
@@ -64,13 +64,29 @@ struct AgentsTabView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                if Defaults[.agentPetEnabled] {
-                    AgentPetView(state: store.displayState, size: 18)
-                        .frame(width: 20, height: 20)
-                }
-                Text("AI Agents")
+                // No crab mascot ("Clawd" is clawd-on-desk's character) and no "智能体" label —
+                // this is NotchPet's own coding-task monitor.
+                Image(systemName: "cpu")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text("AI Coding")
                     .font(.system(size: 13, weight: .semibold))
                 Spacer()
+                Button {
+                    coord.setAutoPilotEnabled(!coord.autoPilotEnabled)
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: coord.autoPilotEnabled ? "bolt.fill" : "bolt")
+                        Text("Auto-pilot")
+                    }
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(coord.autoPilotEnabled ? Color.red : Color.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(coord.autoPilotEnabled ? Color.red.opacity(0.18) : Color.white.opacity(0.07)))
+                }
+                .buttonStyle(.plain)
+                .help(coord.autoPilotEnabled ? "Turn off auto-pilot" : "Turn on auto-pilot")
                 if coord.running {
                     Circle().fill(.green).frame(width: 6, height: 6)
                     Text("port \(Int(coord.activePort ?? 0))")
@@ -78,11 +94,17 @@ struct AgentsTabView: View {
                 }
             }
 
-            if !coord.running {
+            // An AskUserQuestion answered IN the notch takes over the whole panel (so its options
+            // fit without scrolling); otherwise show the permission card + the session list.
+            if let clar = coord.pendingClarification {
+                ClarificationCard(clarification: clar)
+            } else if !coord.running {
                 emptyState(icon: "bolt.slash",
                            text: "AI sync is off.",
                            action: ("Enable", { coord.setEnabled(true) }))
-            } else if store.sessions.isEmpty {
+            } else {
+                if let perm = coord.pendingPermission { permissionCard(perm) }
+                if store.sessions.isEmpty {
                 emptyState(icon: "moon.zzz",
                            text: "No active agents. Start a task in Claude Code.",
                            action: nil)
@@ -96,10 +118,49 @@ struct AgentsTabView: View {
                     .padding(.bottom, 2)
                 }
                 .frame(maxHeight: .infinity)
+                }
             }
         }
         .padding(.horizontal, 8)
+        .padding(.bottom, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    @ViewBuilder
+    private func permissionCard(_ perm: PendingPermission) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "lock.shield.fill").foregroundStyle(.orange)
+                Text("Permission request").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+                Spacer()
+                Text(perm.payload.toolName).font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+            Text(permissionDetail(perm.payload))
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.9))
+                .lineLimit(2).truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) {
+                Button("Deny") { coord.resolvePermission(.deny) }
+                    .buttonStyle(.bordered)
+                Spacer()
+                Button("Allow") { coord.resolvePermission(.allow) }
+                    .buttonStyle(.borderedProminent)
+            }
+            .controlSize(.small)
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.orange.opacity(0.16)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.orange.opacity(0.4), lineWidth: 1))
+    }
+
+    private func permissionDetail(_ p: PermissionRequestPayload) -> String {
+        if let input = p.rawJSON["tool_input"] as? [String: Any] {
+            if let cmd = input["command"] as? String { return cmd }
+            if let path = input["path"] as? String { return path }
+            if let file = input["file_path"] as? String { return file }
+        }
+        return p.toolName
     }
 
     @ViewBuilder
@@ -112,6 +173,185 @@ struct AgentsTabView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Reports the clarification card's natural height up to the notch sizing.
+private struct ClarCardHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+/// An AskUserQuestion answered right in the notch — pick option(s), submit back to Claude Code,
+/// or defer to the terminal. (Submitting uses the PermissionRequest hook's updatedInput.answers.)
+struct ClarificationCard: View {
+    let clarification: PendingClarification
+    @ObservedObject var coord = AgentSyncCoordinator.shared
+    @ObservedObject var store = AgentSessionStore.shared
+    @State private var selections: [UUID: Set<UUID>] = [:]   // questionID → selected optionIDs
+    @State private var customText: [UUID: String] = [:]      // questionID → typed custom answer
+    @State private var step = 0                              // current question (one at a time)
+
+    /// Which conversation is asking (so the user knows what this is about).
+    private var convoTitle: String { store.sessions[clarification.sessionId]?.title ?? "" }
+
+    private func answered(_ q: ClarificationQuestion) -> Bool {
+        !(selections[q.id]?.isEmpty ?? true)
+            || !(customText[q.id]?.trimmingCharacters(in: .whitespaces).isEmpty ?? true)
+    }
+
+    var body: some View {
+        let questions = clarification.questions
+        let idx = min(step, max(0, questions.count - 1))
+        let q = questions[idx]
+        let isLast = idx >= questions.count - 1
+        return VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Image(systemName: "questionmark.bubble.fill").foregroundStyle(.orange)
+                    Text("Needs your answer").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+                    if questions.count > 1 {
+                        Text("\(idx + 1)/\(questions.count)")
+                            .font(.system(size: 10, weight: .medium)).foregroundStyle(.white.opacity(0.55))
+                    }
+                    Spacer()
+                    Button("Go to terminal") { coord.clarificationToTerminal() }
+                        .font(.system(size: 10, weight: .medium))
+                        .buttonStyle(.plain).foregroundStyle(.white.opacity(0.7))
+                }
+                if !convoTitle.isEmpty {
+                    Text(convoTitle)
+                        .font(.system(size: 9)).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
+                }
+            }
+            // Hug the content: the card reports its natural height (below) and the notch sizes to
+            // match, so the bottom sits right under the nav with uniform margins and no scroll.
+            questionBody(q, idx: idx, isLast: isLast)
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.orange.opacity(0.14)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.orange.opacity(0.4), lineWidth: 1))
+        // Report the card's natural height so the notch can size to fit it exactly (uniform margins).
+        .background(GeometryReader { geo in
+            Color.clear.preference(key: ClarCardHeightKey.self, value: geo.size.height)
+        })
+        .onPreferenceChange(ClarCardHeightKey.self) { h in
+            // Ignore 0/teardown reports (they'd briefly shrink the notch and cause a visible jump).
+            guard h > 1 else { return }
+            if abs(coord.clarificationCardHeight - h) > 0.5 { coord.clarificationCardHeight = h }
+        }
+    }
+
+    @ViewBuilder
+    private func questionBody(_ q: ClarificationQuestion, idx: Int, isLast: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !q.question.isEmpty {
+                Text(q.question)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.95))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(q.options) { opt in optionButton(q, opt) }
+                customInputRow(q)
+            }
+            HStack(spacing: 8) {
+                if idx > 0 {
+                    Button("Previous") { step -= 1 }
+                        .buttonStyle(.bordered).controlSize(.small)
+                }
+                Spacer()
+                Button(isLast ? "Submit" : "Next") { advance(from: q, isLast: isLast) }
+                    .buttonStyle(.borderedProminent).controlSize(.small)
+                    .disabled(!answered(q))
+            }
+            .padding(.top, 2)
+        }
+    }
+
+    private func advance(from q: ClarificationQuestion, isLast: Bool) {
+        guard answered(q) else { return }
+        if isLast { submit() } else { step += 1 }
+    }
+
+    private func optionButton(_ q: ClarificationQuestion, _ opt: ClarificationOption) -> some View {
+        let selected = selections[q.id]?.contains(opt.id) ?? false
+        return Button { toggle(q, opt) } label: {
+            HStack(spacing: 6) {
+                Image(systemName: selected
+                      ? (q.multiSelect ? "checkmark.square.fill" : "largecircle.fill.circle")
+                      : (q.multiSelect ? "square" : "circle"))
+                    .font(.system(size: 11))
+                    .foregroundStyle(selected ? .orange : .white.opacity(0.4))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(opt.label).font(.system(size: 11)).foregroundStyle(.white)
+                    if !opt.description.isEmpty {
+                        Text(opt.description).font(.system(size: 9)).foregroundStyle(.white.opacity(0.5)).lineLimit(2)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(selected ? 0.16 : 0.06)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The "Other" row — same look as an option (icon + selected highlight) but with a text field.
+    private func customInputRow(_ q: ClarificationQuestion) -> some View {
+        let selected = !(customText[q.id]?.trimmingCharacters(in: .whitespaces).isEmpty ?? true)
+        return HStack(spacing: 6) {
+            Image(systemName: selected
+                  ? (q.multiSelect ? "checkmark.square.fill" : "largecircle.fill.circle")
+                  : (q.multiSelect ? "square" : "circle"))
+                .font(.system(size: 11))
+                .foregroundStyle(selected ? .orange : .white.opacity(0.4))
+            TextField("Or type your own…", text: Binding(
+                get: { customText[q.id] ?? "" },
+                set: { v in
+                    customText[q.id] = v
+                    // Single-select: typing replaces the picked option. Multi-select: the typed
+                    // answer is ADDITIONAL to whatever boxes are checked, so don't clear them.
+                    if !q.multiSelect, !v.trimmingCharacters(in: .whitespaces).isEmpty { selections[q.id] = [] }
+                }))
+                .textFieldStyle(.plain)
+                .font(.system(size: 11))
+                .foregroundStyle(.white)
+                .onSubmit { advance(from: q, isLast: clarification.questions.last?.id == q.id) }   // Enter = next/submit
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 6)
+        .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(selected ? 0.16 : 0.06)))
+    }
+
+    private func toggle(_ q: ClarificationQuestion, _ opt: ClarificationOption) {
+        var set = selections[q.id] ?? []
+        if q.multiSelect {
+            // Multi-select: checking a box leaves any typed custom answer intact (they coexist).
+            if set.contains(opt.id) { set.remove(opt.id) } else { set.insert(opt.id) }
+            selections[q.id] = set
+        } else {
+            customText[q.id] = ""   // single-select: picking an option clears the typed answer
+            selections[q.id] = [opt.id]
+            // Single-select: picking auto-advances to the next question (or submits if last).
+            advance(from: q, isLast: clarification.questions.last?.id == q.id)
+        }
+    }
+
+    private func submit() {
+        var answers: [String: String] = [:]
+        for q in clarification.questions {
+            // Combine checked option labels with any typed custom answer (multi-select can have
+            // both; single-select clears one when the other is set, so this stays a single value).
+            var parts = q.options.filter { selections[q.id]?.contains($0.id) ?? false }.map(\.label)
+            let custom = customText[q.id]?.trimmingCharacters(in: .whitespaces) ?? ""
+            if !custom.isEmpty { parts.append(custom) }
+            if !parts.isEmpty { answers[q.question] = parts.joined(separator: ", ") }
+        }
+        coord.resolveClarification(answers)
     }
 }
 
@@ -190,10 +430,33 @@ struct AgentSessionRow: View {
                 Text(session.title)
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1).truncationMode(.tail)
-                Text(AgentKind.name(session.agentId))
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                // Software name + context-usage % live together on the subtitle line, kept
+                // OUT of the trailing status badge so status and percent never overlap.
+                HStack(spacing: 4) {
+                    Text(AgentKind.name(session.agentId))
+                        .lineLimit(1)
+                    if let remain = session.contextRemainingPercent {
+                        // "· 50% left" / "· 剩 50%" — % kept literal via %%, number via %@.
+                        Text(String(format: NSLocalizedString("· %@%% left", comment: "context remaining"), "\(remain)"))
+                            .monospacedDigit()
+                    }
+                }
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+
+                // Surface the agent's own words: the question while it's waiting (.notification),
+                // and its final reply once the task is done (.attention) or errored (.error).
+                if let msg = session.lastOutput,
+                   !msg.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   session.state == .notification || session.state == .attention || session.state == .error {
+                    Text(msg)
+                        .font(.system(size: 10))
+                        .foregroundStyle(session.state == .notification ? .orange.opacity(0.95)
+                                         : session.state == .error ? .red.opacity(0.9)
+                                         : .white.opacity(0.75))
+                        .lineLimit(3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
 
             Spacer(minLength: 6)
@@ -204,19 +467,34 @@ struct AgentSessionRow: View {
         .padding(.vertical, 5)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
         .contentShape(Rectangle())
-        .onTapGesture { if session.requiresAck { store.ack(session.id) } }
+        .onTapGesture {
+            // Tapping a "needs you" row clears it; otherwise no action (no acknowledge step —
+            // state just follows the conversation, like clawd).
+            if session.state == .notification { store.dismissNotification(session.id) }
+        }
     }
 
     @ViewBuilder
     private var badge: some View {
-        if session.requiresAck {
-            pill(text: "Done", color: .green)
-        } else if session.state == .error {
-            pill(text: "Error", color: .red)
-        } else if let pct = session.contextPercent {
-            Text("\(Int(pct))%")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary)
+        if let status = statusBadge {
+            pill(text: status.text, color: status.color)
+        }
+    }
+
+    /// The live status pill, derived purely from the session state (no acknowledge step). It
+    /// updates as the conversation progresses: Working → Done → Working again on continue.
+    private var statusBadge: (text: LocalizedStringKey, color: Color)? {
+        switch session.state {
+        case .attention:
+            return ("Done", .green)
+        case .error:
+            return ("Error", .red)
+        case .notification:
+            return ("Needs you", .orange)
+        case .thinking, .working, .juggling, .sweeping, .carrying:
+            return ("Working", .blue)
+        case .idle, .sleeping:
+            return nil
         }
     }
 
@@ -238,7 +516,6 @@ struct AgentSyncSettingsView: View {
     @Default(.agentCompletionSound) var completionSound
     @Default(.agentShowInClosedNotch) var showInNotch
     @Default(.agentPermissionsEnabled) var permissions
-    @Default(.agentPetEnabled) var petEnabled
 
     var body: some View {
         Form {
@@ -271,14 +548,6 @@ struct AgentSyncSettingsView: View {
                 Toggle("Show status in closed notch", isOn: $showInNotch)
             }
 
-            Section("Pet") {
-                Toggle("Show the crab on the Agents page", isOn: Binding(
-                    get: { petEnabled },
-                    set: { coord.setPetEnabled($0) }))
-                Text("The notch stays clean — it only pops a brief status when a task finishes, errors, or needs your input. The crab lives on the Agents tab.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-
             Section("Coding tools") {
                 Text("NotchPet reuses clawd-on-desk's ready-made installers to capture tasks from many CLIs/IDEs. Toggle which to hook.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -299,9 +568,27 @@ struct AgentSyncSettingsView: View {
             }
 
             Section("Permissions (advanced)") {
-                Toggle("Answer permission requests in NotchPet", isOn: $permissions)
+                Toggle("Answer permission requests in NotchPet", isOn: Binding(
+                    get: { permissions },
+                    set: { coord.setPermissionsEnabled($0) }
+                ))
                 Text("When on, tool-permission prompts appear as a bubble. When off, Claude Code keeps using its own terminal prompt.")
                     .font(.caption).foregroundStyle(.secondary)
+
+                Toggle("Auto-pilot: approve all requests", isOn: Binding(
+                    get: { coord.autoPilotEnabled },
+                    set: { coord.setAutoPilotEnabled($0) }
+                ))
+                .disabled(!permissions)
+                .foregroundStyle(coord.autoPilotEnabled ? Color.red : Color.primary)
+
+                Text("Session only. Automatically approves commands, file changes, and clarification prompts; it turns off when NotchPet quits.")
+                    .font(.caption)
+                    .foregroundStyle(coord.autoPilotEnabled ? .red : .secondary)
+
+                Text("ChatGPT/Codex desktop tasks keep using the permission mode selected in ChatGPT; their log monitor exposes status, but not an approval response channel.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

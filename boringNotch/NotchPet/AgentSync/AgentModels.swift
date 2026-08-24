@@ -14,16 +14,16 @@ import Defaults
 enum AgentState: String, Codable {
     case idle, thinking, working, juggling, sweeping, error, attention, notification, carrying, sleeping
 
-    /// Multi-session arbitration priority (from clawd state-priority.js — higher wins).
+    /// Multi-session arbitration for the single closed-notch glance (higher wins). Based on clawd's
+    /// state-priority.js, but ACTIVE work outranks a finished task so a lingering "done" session
+    /// never masks one that's still generating — otherwise the notch reads green while an agent works.
     var priority: Int {
         switch self {
-        case .error: return 8
-        case .notification: return 7
-        case .sweeping: return 6
+        case .error: return 9
+        case .notification: return 8
+        case .working, .juggling, .carrying: return 7
+        case .thinking, .sweeping: return 6
         case .attention: return 5
-        case .carrying, .juggling: return 4
-        case .working: return 3
-        case .thinking: return 2
         case .idle: return 1
         case .sleeping: return 0
         }
@@ -92,34 +92,75 @@ enum AgentState: String, Codable {
     }
 }
 
-/// Context-window usage reported by Claude Code.
-struct AgentContextUsage: Decodable {
-    let used: Int?
-    let limit: Int?
-    let percent: Double?
+/// Lenient JSON helpers so a single unexpected field type never drops the whole event.
+private enum Lenient {
+    static func string<K>(_ c: KeyedDecodingContainer<K>?, _ k: K) -> String? {
+        guard let c else { return nil }
+        if let v = (try? c.decodeIfPresent(String.self, forKey: k)) ?? nil { return v }
+        if let v = (try? c.decodeIfPresent(Int.self, forKey: k)) ?? nil { return String(v) }
+        return nil
+    }
+    static func int<K>(_ c: KeyedDecodingContainer<K>?, _ k: K) -> Int? {
+        guard let c else { return nil }
+        if let v = (try? c.decodeIfPresent(Int.self, forKey: k)) ?? nil { return v }
+        if let v = (try? c.decodeIfPresent(Double.self, forKey: k)) ?? nil { return Int(v) }
+        if let v = (try? c.decodeIfPresent(String.self, forKey: k)) ?? nil { return Int(v) }
+        return nil
+    }
+    static func double<K>(_ c: KeyedDecodingContainer<K>?, _ k: K) -> Double? {
+        guard let c else { return nil }
+        if let v = (try? c.decodeIfPresent(Double.self, forKey: k)) ?? nil { return v }
+        if let v = (try? c.decodeIfPresent(Int.self, forKey: k)) ?? nil { return Double(v) }
+        if let v = (try? c.decodeIfPresent(String.self, forKey: k)) ?? nil { return Double(v) }
+        return nil
+    }
+    static func bool<K>(_ c: KeyedDecodingContainer<K>?, _ k: K) -> Bool? {
+        guard let c else { return nil }
+        if let v = (try? c.decodeIfPresent(Bool.self, forKey: k)) ?? nil { return v }
+        if let v = (try? c.decodeIfPresent(String.self, forKey: k)) ?? nil { return v == "true" || v == "1" }
+        return nil
+    }
 }
 
-/// Decoded body of a `POST /state` from the hook script (Claude Code hook payload).
+/// Context-window usage reported by Claude Code.
+struct AgentContextUsage: Decodable {
+    var used: Int?
+    var limit: Int?
+    var percent: Double?
+
+    enum CodingKeys: String, CodingKey { case used, limit, percent }
+    init(from decoder: Decoder) {
+        let c = try? decoder.container(keyedBy: CodingKeys.self)
+        used = Lenient.int(c, .used)
+        limit = Lenient.int(c, .limit)
+        percent = Lenient.double(c, .percent)
+    }
+}
+
+/// Decoded body of a `POST /state` from the hook script (Claude Code hook payload). Decoded
+/// leniently — a single bad field never drops the whole event.
 struct AgentEvent: Decodable {
-    let event: String?
-    let sessionId: String?
-    let agentId: String?
-    let toolName: String?
-    let cwd: String?
-    let sessionTitle: String?
-    let transcriptPath: String?
-    let contextUsage: AgentContextUsage?
-    let assistantLastOutput: String?
-    let apiErrorType: String?
-    let headless: Bool?
-    let trigger: String?
-    let source: String?
-    let backgroundTasksCount: Int?
-    let sessionCronsCount: Int?
-    let stopHookActive: Bool?
+    var event: String?
+    var state: String?          // the state clawd's hook already computed (authoritative)
+    var sessionId: String?
+    var agentId: String?
+    var toolName: String?
+    var cwd: String?
+    var sessionTitle: String?
+    var transcriptPath: String?
+    var contextUsage: AgentContextUsage?
+    var assistantLastOutput: String?
+    var apiErrorType: String?
+    var headless: Bool?
+    var trigger: String?
+    var source: String?
+    var backgroundTasksCount: Int?
+    var sessionCronsCount: Int?
+    var stopHookActive: Bool?
 
     enum CodingKeys: String, CodingKey {
         case event
+        case state
         case sessionId = "session_id"
         case agentId = "agent_id"
         case toolName = "tool_name"
@@ -136,6 +177,28 @@ struct AgentEvent: Decodable {
         case sessionCronsCount = "session_crons_count"
         case stopHookActive = "stop_hook_active"
     }
+
+    init() {}
+    init(from decoder: Decoder) {
+        let c = try? decoder.container(keyedBy: CodingKeys.self)
+        event = Lenient.string(c, .event)
+        state = Lenient.string(c, .state)
+        sessionId = Lenient.string(c, .sessionId)
+        agentId = Lenient.string(c, .agentId)
+        toolName = Lenient.string(c, .toolName)
+        cwd = Lenient.string(c, .cwd)
+        sessionTitle = Lenient.string(c, .sessionTitle)
+        transcriptPath = Lenient.string(c, .transcriptPath)
+        contextUsage = (try? c?.decodeIfPresent(AgentContextUsage.self, forKey: .contextUsage)) ?? nil
+        assistantLastOutput = Lenient.string(c, .assistantLastOutput)
+        apiErrorType = Lenient.string(c, .apiErrorType)
+        headless = Lenient.bool(c, .headless)
+        trigger = Lenient.string(c, .trigger)
+        source = Lenient.string(c, .source)
+        backgroundTasksCount = Lenient.int(c, .backgroundTasksCount)
+        sessionCronsCount = Lenient.int(c, .sessionCronsCount)
+        stopHookActive = Lenient.bool(c, .stopHookActive)
+    }
 }
 
 /// A tracked agent session.
@@ -149,7 +212,24 @@ struct AgentSession: Identifiable, Codable, Defaults.Serializable {
     var cwd: String?
     var headless: Bool
     var updatedAt: Date
-    var requiresAck: Bool    // completed but not yet acknowledged by the user
+    var transcriptPath: String?  // ~/.claude/projects/.../<session>.jsonl — for deriving a title
+    var contextUsed: Int?    // context-window tokens used (latest assistant turn)
+    var contextLimit: Int?   // context-window size (e.g. 200000)
+}
+
+extension AgentSession {
+    /// Remaining context as a percentage. Computed from the real token count, correcting for the
+    /// 1M-context beta that the hook can't detect from the model name: if usage already exceeds
+    /// the reported limit, the window is actually the 1M tier.
+    var contextRemainingPercent: Int? {
+        if let used = contextUsed, used > 0 {
+            let reported = contextLimit ?? 200_000
+            let limit = used > reported ? 1_000_000 : reported
+            return max(0, min(100, Int((Double(limit - used) / Double(limit) * 100).rounded())))
+        }
+        if let p = contextPercent { return max(0, min(100, 100 - Int(p.rounded()))) }
+        return nil
+    }
 }
 
 /// Pure event → state mapping (clawd hooks/clawd-hook.js + Stop/PostCompact rules).

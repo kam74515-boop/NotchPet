@@ -15,11 +15,14 @@ import SwiftUI
 struct MusicPlayerView: View {
     @EnvironmentObject var vm: BoringViewModel
     let albumArtNamespace: Namespace.ID
+    /// When the Home page shows the full lyrics panel beside the player, suppress the
+    /// single-line lyric under the title to avoid showing the current line twice.
+    var showsInlineLyrics: Bool = true
 
     var body: some View {
         HStack {
             AlbumArtView(vm: vm, albumArtNamespace: albumArtNamespace).padding(.all, 5)
-            MusicControlsView().drawingGroup().compositingGroup()
+            MusicControlsView(showsInlineLyrics: showsInlineLyrics).drawingGroup().compositingGroup()
         }
     }
 }
@@ -98,7 +101,7 @@ struct AlbumArtView: View {
     @ViewBuilder
     private var appIconOverlay: some View {
         if vm.notchState == .open && !musicManager.usingAppIconForArtwork {
-            AppIcon(for: musicManager.bundleIdentifier ?? "com.apple.Music")
+            AppIcon(for: musicManager.bundleIdentifier ?? Defaults[.defaultMusicAppBundleID])
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .frame(width: 30, height: 30)
@@ -113,11 +116,14 @@ struct MusicControlsView: View {
     @ObservedObject var musicManager = MusicManager.shared
         @EnvironmentObject var vm: BoringViewModel
         @ObservedObject var webcamManager = WebcamManager.shared
+    var showsInlineLyrics: Bool = true
     @State private var sliderValue: Double = 0
     @State private var dragging: Bool = false
     @State private var lastDragged: Date = .distantPast
     @Default(.musicControlSlots) private var slotConfig
     @Default(.musicControlSlotLimit) private var slotLimit
+    @Default(.enableLyrics) private var enableLyrics
+    @Default(.showFloatingLyrics) private var showFloatingLyrics
 
     var body: some View {
         VStack(alignment: .leading) {
@@ -136,6 +142,27 @@ struct MusicControlsView: View {
         }
         .padding(.top, 10)
         .padding(.leading, 5)
+        .overlay(alignment: .topTrailing) { floatingLyricsToggle }
+    }
+
+    /// Turn the below-the-closed-notch lyric caption on/off, right from the music player.
+    /// Only meaningful once lyrics are enabled and we actually have synced lyrics for this track.
+    @ViewBuilder
+    private var floatingLyricsToggle: some View {
+        if enableLyrics && !musicManager.syncedLyrics.isEmpty {
+            Button {
+                showFloatingLyrics.toggle()
+            } label: {
+                Image(systemName: showFloatingLyrics ? "captions.bubble.fill" : "captions.bubble")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(showFloatingLyrics ? .white : .white.opacity(0.4))
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(showFloatingLyrics ? "Hide lyrics below the notch" : "Show lyrics below the notch")
+            .padding(.trailing, 4)
+        }
     }
 
     private func songInfo(width: CGFloat) -> some View {
@@ -153,7 +180,7 @@ struct MusicControlsView: View {
                 frameWidth: width
             )
             .fontWeight(.medium)
-            if Defaults[.enableLyrics] {
+            if Defaults[.enableLyrics] && showsInlineLyrics {
                 TimelineView(.animation(minimumInterval: 0.25)) { timeline in
                     let currentElapsed: Double = {
                         guard musicManager.isPlaying else { return musicManager.elapsedTime }
@@ -420,49 +447,21 @@ struct VolumeControlView: View {
 
 struct NotchHomeView: View {
     @EnvironmentObject var vm: BoringViewModel
-    @ObservedObject var webcamManager = WebcamManager.shared
-    @ObservedObject var batteryModel = BatteryStatusViewModel.shared
     @ObservedObject var coordinator = BoringViewCoordinator.shared
+    // Kept so existing call sites don't change; the player itself now lives on the Lyrics page.
     let albumArtNamespace: Namespace.ID
 
     var body: some View {
         Group {
             if !coordinator.firstLaunch {
-                mainContent
-            }
-        }
-        // simplified: use a straightforward opacity transition
-        .transition(.opacity)
-    }
-
-    private var shouldShowCamera: Bool {
-        Defaults[.showMirror] && webcamManager.cameraAvailable && vm.isCameraExpanded
-    }
-
-    private var mainContent: some View {
-        HStack(alignment: .top, spacing: (shouldShowCamera && Defaults[.showCalendar]) ? 10 : 15) {
-            MusicPlayerView(albumArtNamespace: albumArtNamespace)
-
-            if Defaults[.showCalendar] {
-                CalendarView()
-                    .frame(width: shouldShowCamera ? 170 : 215)
-                    .onHover { isHovering in
-                        vm.isHoveringCalendar = isHovering
-                    }
+                // The Home page is now a Nook-X-style customizable widget board.
+                HomeWidgetBoard()
                     .environmentObject(vm)
-                    .transition(.opacity)
-            }
-
-            if shouldShowCamera {
-                CameraPreviewView(webcamManager: webcamManager)
-                    .scaledToFit()
-                    .opacity(vm.notchState == .closed ? 0 : 1)
-                    .blur(radius: vm.notchState == .closed ? 20 : 0)
-                    .animation(.interactiveSpring(response: 0.32, dampingFraction: 0.76, blendDuration: 0), value: shouldShowCamera)
+                    .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity))
+                    .blur(radius: vm.notchState == .closed ? 30 : 0)
             }
         }
-        .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity))
-        .blur(radius: vm.notchState == .closed ? 30 : 0)
+        .transition(.opacity)
     }
 }
 

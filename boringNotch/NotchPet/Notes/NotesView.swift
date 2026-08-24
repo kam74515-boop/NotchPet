@@ -42,6 +42,10 @@ struct NotesView: View {
         // panes scroll internally rather than overflowing this bounded frame.
         .frame(maxWidth: .infinity, maxHeight: 145, alignment: .top)
         .onAppear { syncDraftFromManager() }
+        .onDisappear {
+            commitDraft()
+            manager.flush()
+        }
         // Keep the editor in sync when the selection changes (e.g. clicking a row).
         .onChange(of: manager.selectedID) { _ in syncDraftFromManager() }
     }

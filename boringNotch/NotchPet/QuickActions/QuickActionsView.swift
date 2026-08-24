@@ -103,7 +103,7 @@ private struct ActionTile: View {
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(.white.opacity(0.95))
                     .frame(height: 18)
-                Text(action.title)
+                Text(LocalizedStringKey(action.title))
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)

@@ -46,8 +46,8 @@ struct QuickActionsSettingsView: View {
         return Toggle(isOn: binding) {
             Label {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(action.title)
-                    Text(action.help)
+                    Text(LocalizedStringKey(action.title))
+                    Text(LocalizedStringKey(action.help))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }

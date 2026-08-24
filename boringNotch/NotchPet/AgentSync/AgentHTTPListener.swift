@@ -14,9 +14,21 @@ import Network
 enum PermissionDecision: String { case allow, deny, wait }
 
 struct PermissionRequestPayload {
+    let requestId = UUID()
     let toolName: String
     let sessionId: String
     let rawJSON: [String: Any]
+
+    var isHeadless: Bool { rawJSON["headless"] as? Bool == true }
+}
+
+/// Tracks whether a held permission/clarification request has already been answered in the notch,
+/// so the connection-close watcher doesn't treat OUR own response as the client bailing out.
+private final class HeldRequest {
+    private let lock = NSLock()
+    private var resolved = false
+    func markResolved() { lock.lock(); resolved = true; lock.unlock() }
+    var isResolved: Bool { lock.lock(); defer { lock.unlock() }; return resolved }
 }
 
 /// Minimal HTTP/1.1 request, parsed from a raw byte buffer.
@@ -79,6 +91,10 @@ final class AgentHTTPListener {
     static let serverIdentity = "notchpet"
 
     private var listener: NWListener?
+    // SERIAL: rapid hook events (UserPromptSubmit → PreToolUse → Stop …) must be applied in the
+    // order they arrived, or a stale state can overwrite a newer one (e.g. the "working" update
+    // never sticks). Held connections (clarification/permission) don't block the queue — they park
+    // on stored closures + an async close watcher — so serial costs nothing here.
     private let queue = DispatchQueue(label: "notchpet.agentsync.listener")
     // Own port range, distinct from Clawd on Desk (23333–23337), so both can coexist.
     private let candidatePorts: [UInt16] = [24333, 24334, 24335, 24336, 24337]
@@ -88,6 +104,7 @@ final class AgentHTTPListener {
     private(set) var activePort: UInt16?
     var onPortBound: ((UInt16) -> Void)?
     var onPermission: ((PermissionRequestPayload, @escaping (PermissionDecision) -> Void) -> Void)?
+    var onClarification: ((PendingClarification) -> Void)?
 
     func start() {
         queue.async { [weak self] in
@@ -175,7 +192,8 @@ final class AgentHTTPListener {
         case ("GET", "/sessions"):
             Task { @MainActor [weak self] in
                 let list = AgentSessionStore.shared.orderedSessions.map { s -> [String: Any] in
-                    ["id": s.id, "agent": s.agentId, "title": s.title, "state": s.state.rawValue, "ack": s.requiresAck]
+                    ["id": s.id, "agent": s.agentId, "title": s.title, "state": s.state.rawValue,
+                     "ctxPct": s.contextPercent ?? -1, "ctxUsed": s.contextUsed ?? -1, "ctxLimit": s.contextLimit ?? -1]
                 }
                 self?.respond(conn, status: "200 OK", json: ["sessions": list])
             }
@@ -183,10 +201,13 @@ final class AgentHTTPListener {
         case ("POST", "/state"):
             let eventName = req.query["event"] ?? (jsonObject(req.body)?["event"] as? String) ?? ""
             let agentId = req.query["agent"]
-            if let event = try? JSONDecoder().decode(AgentEvent.self, from: req.body) {
+            // Lenient decode never throws on a JSON object; fall back to an empty event so a
+            // malformed body still registers the event (by name) instead of being dropped.
+            let event = (try? JSONDecoder().decode(AgentEvent.self, from: req.body)) ?? AgentEvent()
+            let name = eventName.isEmpty ? (event.event ?? "") : eventName
+            if !name.isEmpty {
                 Task { @MainActor in
-                    AgentSessionStore.shared.ingest(event: eventName.isEmpty ? (event.event ?? "") : eventName,
-                                                    payload: event, agentIdOverride: agentId)
+                    AgentSessionStore.shared.ingest(event: name, payload: event, agentIdOverride: agentId)
                 }
             }
             respond(conn, status: "200 OK", json: [:])
@@ -200,36 +221,120 @@ final class AgentHTTPListener {
     }
 
     private func handlePermission(_ req: HTTPRequest, _ conn: NWConnection) {
+        let obj = jsonObject(req.body) ?? [:]
+        let toolName = obj["tool_name"] as? String ?? "tool"
+        let sessionId = obj["session_id"] as? String ?? "default"
+
+        // AskUserQuestion: answer it RIGHT IN the notch (clawd's mechanism). Hold the connection;
+        // when the user picks, respond with decision.behavior="allow" + updatedInput.answers
+        // (keyed by question text) so Claude Code completes the tool with that choice. "Go to
+        // terminal" drops the socket (no-decision) so Claude Code shows its own questionnaire.
+        if toolName == "AskUserQuestion", let toolInput = obj["tool_input"] as? [String: Any],
+           let onClarification {
+            let questions = Self.parseClarificationQuestions(toolInput)
+            let held = HeldRequest()
+            let clarId = UUID()
+            let submit: ([String: String]) -> Void = { [weak self] answers in
+                held.markResolved()
+                self?.queue.async {
+                    var updated = toolInput
+                    updated["answers"] = answers
+                    self?.respond(conn, status: "200 OK", json: [
+                        "hookSpecificOutput": ["hookEventName": "PermissionRequest",
+                                               "decision": ["behavior": "allow", "updatedInput": updated]],
+                    ])
+                }
+            }
+            let goToTerminal: () -> Void = { [weak self] in
+                held.markResolved()
+                self?.queue.async { conn.cancel() }   // no-decision → Claude Code's own UI
+            }
+            let clar = PendingClarification(id: clarId, sessionId: sessionId, title: "",
+                                            questions: questions,
+                                            headless: obj["headless"] as? Bool == true,
+                                            submit: submit, goToTerminal: goToTerminal)
+            // If Claude Code answers the question elsewhere (e.g. in the terminal) it closes this
+            // connection — clear the notch card so it doesn't linger as already-answered.
+            monitorClose(conn, held: held) {
+                Task { @MainActor in AgentSyncCoordinator.shared.dismissClarification(id: clarId) }
+            }
+            Task { @MainActor in
+                AgentSessionStore.shared.markClarification(sessionId: sessionId, tool: toolName,
+                                                           question: questions.first?.question)
+                onClarification(clar)
+            }
+            return
+        }
+
         guard let onPermission else {
             // Permission bubbles disabled → empty 200 means "no decision", so Claude Code
             // falls back to its own (terminal) permission flow.
             respond(conn, status: "200 OK", json: [:])
             return
         }
-        let obj = jsonObject(req.body) ?? [:]
-        let payload = PermissionRequestPayload(
-            toolName: obj["tool_name"] as? String ?? "tool",
-            sessionId: obj["session_id"] as? String ?? "default",
-            rawJSON: obj
-        )
+        let payload = PermissionRequestPayload(toolName: toolName, sessionId: sessionId, rawJSON: obj)
+        let held = HeldRequest()
+        // Same as clarification: if the request is resolved in the terminal, the client closes the
+        // connection — clear the in-notch permission card instead of leaving it hanging.
+        monitorClose(conn, held: held) {
+            Task { @MainActor in AgentSyncCoordinator.shared.dismissPermission(requestId: payload.requestId) }
+        }
         Task { @MainActor in
             onPermission(payload) { [weak self] decision in
+                held.markResolved()
                 self?.queue.async {
-                    // Official Claude Code PermissionRequest hook response shape.
-                    let mapped = decision == .allow ? "allow" : (decision == .deny ? "deny" : "ask")
-                    self?.respond(conn, status: "200 OK", json: [
-                        "hookSpecificOutput": [
-                            "hookEventName": "PermissionRequest",
-                            "permissionDecision": mapped,
-                        ],
-                    ])
+                    // Official Claude Code PermissionRequest response shape:
+                    //   hookSpecificOutput.decision.behavior = "allow" | "deny".
+                    // For .wait, return no decision so Claude Code falls back to its own prompt.
+                    let json: [String: Any]
+                    switch decision {
+                    case .allow:
+                        json = ["hookSpecificOutput": ["hookEventName": "PermissionRequest",
+                                                       "decision": ["behavior": "allow"]]]
+                    case .deny:
+                        json = ["hookSpecificOutput": ["hookEventName": "PermissionRequest",
+                                                       "decision": ["behavior": "deny"]]]
+                    case .wait:
+                        json = [:]
+                    }
+                    self?.respond(conn, status: "200 OK", json: json)
                 }
+            }
+        }
+    }
+
+    /// Watch a held connection: if the peer closes it (or it errors) before we answered in the
+    /// notch, the request was resolved elsewhere — invoke `onClose` so the UI can dismiss its card.
+    private func monitorClose(_ conn: NWConnection, held: HeldRequest, onClose: @escaping () -> Void) {
+        conn.receive(minimumIncompleteLength: 1, maximumLength: 1) { [weak self] _, _, isComplete, error in
+            guard !held.isResolved else { return }       // our own response closed it — not a bail-out
+            if isComplete || error != nil {
+                conn.cancel()
+                onClose()
+            } else {
+                self?.monitorClose(conn, held: held, onClose: onClose)   // spurious data; keep watching
             }
         }
     }
 
     private func jsonObject(_ data: Data) -> [String: Any]? {
         (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    /// Parse the AskUserQuestion tool_input into structured questions + options for the notch UI.
+    private static func parseClarificationQuestions(_ toolInput: [String: Any]) -> [ClarificationQuestion] {
+        guard let qs = toolInput["questions"] as? [[String: Any]] else { return [] }
+        return qs.map { q in
+            let opts = (q["options"] as? [[String: Any]] ?? []).map {
+                ClarificationOption(label: $0["label"] as? String ?? "",
+                                    description: $0["description"] as? String ?? "")
+            }
+            return ClarificationQuestion(
+                question: q["question"] as? String ?? "",
+                header: q["header"] as? String ?? "",
+                options: opts,
+                multiSelect: q["multiSelect"] as? Bool ?? false)
+        }
     }
 
     private func respond(_ conn: NWConnection, status: String, json: [String: Any]) {

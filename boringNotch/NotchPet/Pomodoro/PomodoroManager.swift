@@ -32,6 +32,8 @@ final class PomodoroManager: ObservableObject {
     @Published private(set) var isRunning: Bool = false
     /// Absolute moment the current phase finishes. `nil` when idle.
     @Published private(set) var phaseEndDate: Date?
+    /// Frozen length of the active phase. Settings changes apply to future phases only.
+    @Published private(set) var phaseDuration: TimeInterval = 0
     /// Number of completed focus (work) sessions in the *current* cycle
     /// (resets after a long break). Drives the cycle dots.
     @Published private(set) var cyclePosition: Int = 0
@@ -79,7 +81,7 @@ final class PomodoroManager: ObservableObject {
 
     /// Fractional progress through the current phase, 0...1.
     var progress: Double {
-        let total = duration(for: phase)
+        let total = phase == .idle ? duration(for: .work) : phaseDuration
         guard total > 0 else { return 0 }
         return min(1, max(0, 1 - remaining / total))
     }
@@ -109,6 +111,7 @@ final class PomodoroManager: ObservableObject {
         isRunning = false
         phaseEndDate = nil
         stopTicker()
+        cancelPendingNotification()
         objectWillChange.send()
     }
 
@@ -119,6 +122,7 @@ final class PomodoroManager: ObservableObject {
         pausedRemaining = nil
         isRunning = true
         startTicker()
+        scheduleEndNotification(for: phase, after: rem)
         objectWillChange.send()
     }
 
@@ -144,6 +148,7 @@ final class PomodoroManager: ObservableObject {
         phase = .idle
         isRunning = false
         phaseEndDate = nil
+        phaseDuration = 0
         pausedRemaining = nil
         cyclePosition = 0
         cancelPendingNotification()
@@ -166,12 +171,20 @@ final class PomodoroManager: ObservableObject {
         }
 
         let total = duration(for: newPhase)
-        phaseEndDate = Date().addingTimeInterval(total)
+        phaseDuration = total
         isRunning = autoRun
 
         if autoRun {
+            phaseEndDate = Date().addingTimeInterval(total)
             startTicker()
             scheduleEndNotification(for: newPhase, after: total)
+        } else {
+            // A non-auto-started phase is paused at its full duration. Keeping
+            // the duration here (rather than an inactive future end date) makes
+            // the primary play button able to resume it later.
+            phaseEndDate = nil
+            pausedRemaining = total
+            stopTicker()
         }
         objectWillChange.send()
     }
@@ -186,7 +199,7 @@ final class PomodoroManager: ObservableObject {
 
         if finished == .work {
             if completed {
-                stats.recordFocusCompletion(minutes: Defaults[.pomodoroWorkMinutes])
+                stats.recordFocusCompletion(minutes: Int((phaseDuration / 60).rounded()))
                 cyclePosition += 1
             }
             // Long break after every `interval` completed focus sessions.
@@ -220,6 +233,9 @@ final class PomodoroManager: ObservableObject {
     /// Per-second update: refresh `now` and detect (possibly overslept) completion.
     private func tick() {
         now = Date()
+        var currentStats = stats
+        currentStats.rollDayIfNeeded(now: now)
+        if currentStats != stats { stats = currentStats }
         guard isRunning, let end = phaseEndDate else { return }
         if now >= end {
             // Phase ran to completion (in-app banner is delivered by the

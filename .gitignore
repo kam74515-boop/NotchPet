@@ -25,6 +25,7 @@ Carthage/Build/
 
 # Derived data
 DerivedData/
+.build-derived/
 
 # Build output
 build/
@@ -55,4 +56,3 @@ build/
 
 # Keep the shared scheme tracked (needed for `xcodebuild -scheme` and CI)
 !boringNotch.xcodeproj/xcshareddata/xcschemes/*.xcscheme
-

@@ -9,6 +9,7 @@ import AVFoundation
 import Combine
 import Defaults
 import KeyboardShortcuts
+import LaunchAtLogin
 import Sparkle
 import SwiftUI
 
@@ -66,6 +67,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var closeNotchTask: Task<Void, Never>?
     private var previousScreens: [NSScreen]?
     private var moduleObservers: [Defaults.Observation] = []
+    private var heightCancellables = Set<AnyCancellable>()
     private var onboardingWindowController: NSWindowController?
     private var screenLockedObserver: Any?
     private var screenUnlockedObserver: Any?
@@ -78,6 +80,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        NotesManager.shared.flush()
         NotificationCenter.default.removeObserver(self)
         if let observer = screenLockedObserver {
             DistributedNotificationCenter.default().removeObserver(observer)
@@ -201,9 +204,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let uuid = screen.displayUUID else { return }
         
         let screenFrame = screen.frame
-        let notchHeight = openNotchSize.height
-        let notchWidth = openNotchSize.width
-        
+        // For AirDrop-on-drop (and whenever expanded detection is off), the trigger zone is the
+        // PHYSICAL notch cutout — you must drag to the real notch, not the whole top strip.
+        let usePhysical = Defaults[.notchDropAirDrop] || !Defaults[.expandedDragDetection]
+        let closed = getClosedNotchSize(screenUUID: uuid)
+        let notchHeight = usePhysical ? max(closed.height, 24) : openNotchSize.height
+        let notchWidth = usePhysical ? closed.width : openNotchSize.width
+
         // Create notch region at the top-center of the screen where an open notch would occupy
         let notchRegion = CGRect(
             x: screenFrame.midX - notchWidth / 2,
@@ -250,8 +257,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         window.contentView = NSHostingView(
-            rootView: ContentView()
-                .environmentObject(viewModel)
+            rootView: LocalizedRoot {
+                ContentView()
+                    .environmentObject(viewModel)
+            }
         )
 
         window.orderFrontRegardless()
@@ -286,6 +295,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
 
+        // Launch at login is ON by default — register it once on first run. Guarded so a user who
+        // later disables it isn't re-enabled on the next launch.
+        if !Defaults[.didApplyDefaultLaunchAtLogin] {
+            LaunchAtLogin.isEnabled = true
+            Defaults[.didApplyDefaultLaunchAtLogin] = true
+        }
+
         // MARK: NotchPet feature wiring (notifications, feature managers, AI agent sync)
         Task { @MainActor in
             NotificationManager.shared.requestAuthorizationIfNeeded()
@@ -309,6 +325,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 Task { @MainActor in self?.resizeNotchWindows() }
             },
         ]
+
+        // The Applications (Launcher) page expands ~3× taller. Re-sync the notch height when the
+        // current page or the open/closed state changes so the tall grid fits when shown, and the
+        // window shrinks back (no giant transparent window) when collapsed or on other pages.
+        // `.receive(on:)` defers a tick so the @Published value is current inside the sink.
+        coordinator.$currentView
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.syncNotchHeight() }
+            .store(in: &heightCancellables)
+        vm.$notchState
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.syncNotchHeight() }
+            .store(in: &heightCancellables)
+        // Grow/shrink the notch when an in-notch question / permission card appears or clears.
+        AgentSyncCoordinator.shared.$pendingClarification
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.syncNotchHeight() }
+            .store(in: &heightCancellables)
+        AgentSyncCoordinator.shared.$pendingPermission
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.syncNotchHeight() }
+            .store(in: &heightCancellables)
+        // The clarification card reports its measured height — resize the notch to match it.
+        AgentSyncCoordinator.shared.$clarificationCardHeight
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.syncNotchHeight() }
+            .store(in: &heightCancellables)
 
         NotificationCenter.default.addObserver(
             self,
@@ -503,18 +546,49 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Resize the notch window(s) to the current adaptive `windowSize` (driven by tab count).
+    /// Keep the open-notch content height in sync with the current page (the Applications page is
+    /// ~3× taller) and resize the window to match.
+    @MainActor func syncNotchHeight() {
+        if vm.notchState == .open { vm.notchSize = openNotchSize }
+        for vmodel in viewModels.values where vmodel.notchState == .open {
+            vmodel.notchSize = openNotchSize
+        }
+        resizeNotchWindows()
+    }
+
+    /// Resize the notch window(s) to the current adaptive width (driven by tab count) and height
+    /// (taller only while the Applications page is OPEN). Repositions inline — pinning the top edge
+    /// and re-centering — instead of calling `adjustWindowPosition()`, which would re-enter
+    /// `vm.close()` and loop when invoked from the notchState observer.
     @MainActor func resizeNotchWindows() {
-        let target = windowSize.width
-        func resize(_ window: NSWindow) {
-            guard abs(window.frame.width - target) > 0.5 else { return }
+        let targetWidth = windowSize.width
+        // openNotchSize.height already factors the current page (Applications) and any in-notch
+        // AskUserQuestion / permission card, so it's the right OPEN height.
+        let openHeight = openNotchSize.height
+        let appsView = coordinator.currentView == .launcher
+        func targetHeight(open: Bool) -> CGFloat {
+            (open ? openHeight : standardOpenNotchHeight) + shadowPadding
+        }
+        let clarifying = AgentSyncCoordinator.shared.pendingClarification != nil
+        func resize(_ window: NSWindow, open: Bool) {
+            // Allow keyboard focus while the Applications page (search field) OR an in-notch
+            // questionnaire (custom-answer text field) is open; passive otherwise.
+            (window as? BoringNotchSkyLightWindow)?.keyEnabled = (open && (appsView || clarifying))
+            let h = targetHeight(open: open)
+            guard abs(window.frame.width - targetWidth) > 0.5 || abs(window.frame.height - h) > 0.5 else { return }
             var frame = window.frame
-            frame.size.width = target
+            let topY = frame.maxY                       // keep the top edge pinned to the menu bar
+            frame.size = NSSize(width: targetWidth, height: h)
+            frame.origin.y = topY - h
+            if let screen = window.screen ?? NSScreen.main {
+                frame.origin.x = screen.frame.midX - targetWidth / 2
+            }
             window.setFrame(frame, display: true, animate: false)
         }
-        if let window { resize(window) }
-        for window in windows.values { resize(window) }
-        adjustWindowPosition()
+        if let window { resize(window, open: vm.notchState == .open) }
+        for (uuid, w) in windows {
+            resize(w, open: viewModels[uuid]?.notchState == .open)
+        }
     }
 
     @objc func adjustWindowPosition(changeAlpha: Bool = false) {
@@ -614,19 +688,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden
             window.contentView = NSHostingView(
-                rootView: OnboardingView(
-                    step: step,
-                    onFinish: {
-                        window.orderOut(nil)
+                rootView: LocalizedRoot {
+                    OnboardingView(
+                        step: step,
+                        onFinish: {
+                            window.orderOut(nil)
 //                        NSApp.setActivationPolicy(.accessory)
-                        window.close()
-                        NSApp.deactivate()
-                    },
-                    onOpenSettings: {
-                        window.close()
-                        SettingsWindowController.shared.showWindow()
-                    }
-                ))
+                            window.close()
+                            NSApp.deactivate()
+                        },
+                        onOpenSettings: {
+                            window.close()
+                            SettingsWindowController.shared.showWindow()
+                        }
+                    )
+                })
             window.isRestorable = false
             window.identifier = NSUserInterfaceItemIdentifier("OnboardingWindow")
 

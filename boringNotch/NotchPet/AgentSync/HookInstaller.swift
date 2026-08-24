@@ -88,6 +88,13 @@ enum HookInstaller {
             root["hooks"] = hooks
         }
 
+        // Take over from clawd-on-desk: remove every clawd-lineage hook (its app hooks,
+        // ~/.clawd hooks, the auto-start.js that RELAUNCHES the clawd app, and any vendored
+        // clawd-hook.js). NotchPet then owns Claude Code monitoring on its own — no clawd
+        // install/run required, and clawd is never auto-launched. The user's unrelated hooks
+        // are untouched.
+        stripClawdLineageHooks(from: hooks)
+
         var added = 0
         for event in commandEvents {
             let groups: NSMutableArray
@@ -176,6 +183,42 @@ enum HookInstaller {
                 ["type": "http", "url": "http://127.0.0.1:\(port)/permission", "timeout": 600],
             ],
         ]
+    }
+
+    /// Remove every clawd-on-desk-lineage hook across all events (its app hooks, ~/.clawd hooks,
+    /// the relaunch-clawd auto-start, and any clawd-hook.js / np-clawd-hook.js forwarder).
+    /// Strip the real Clawd-on-Desk APP hooks from settings.json (read/modify/write) so NotchPet's
+    /// vendored install.js fully owns Claude Code monitoring and clawd is never auto-launched.
+    static func stripClawdAppHooks() async {
+        guard let data = await XPCHelperClient.shared.readUserFile(claudeSettingsPath, maxBytes: 0),
+              let root = try? JSONSerialization.jsonObject(with: data, options: [.mutableContainers, .mutableLeaves]) as? NSMutableDictionary,
+              let hooks = root["hooks"] as? NSMutableDictionary else { return }
+        stripClawdLineageHooks(from: hooks)
+        if let out = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted]) {
+            _ = await XPCHelperClient.shared.writeUserFile(claudeSettingsPath, data: out)
+        }
+    }
+
+    private static func stripClawdLineageHooks(from hooks: NSMutableDictionary) {
+        // Match ONLY the real clawd APP (its bundle path, ~/.clawd home, auto-start), plus our own
+        // OLD shell forwarder (notchpet-hook.sh) which the rich np-clawd-hook.js now replaces.
+        // NOT a bare "clawd-hook.js" — that would also wipe the vendored np-clawd-hook.js.
+        let cmdNeedles = ["Clawd on Desk.app", "/.clawd/", "auto-start.js", "notchpet-hook.sh"]
+        // clawd's HTTP hooks point at its own 2333x ports; NotchPet uses 2433x, so this never
+        // matches our own permission hook.
+        let urlNeedles = ["127.0.0.1:2333", "localhost:2333"]
+        for case let groups as NSMutableArray in hooks.allValues {
+            let survivors = groups.compactMap { $0 as? NSDictionary }.filter { dict in
+                guard let inner = dict["hooks"] as? [[String: Any]] else { return true }
+                return !inner.contains { hook in
+                    if let cmd = hook["command"] as? String, cmdNeedles.contains(where: { cmd.contains($0) }) { return true }
+                    if let url = hook["url"] as? String, urlNeedles.contains(where: { url.contains($0) }) { return true }
+                    return false
+                }
+            }
+            groups.removeAllObjects()
+            groups.addObjects(from: survivors)
+        }
     }
 
     private static func stripOurHooks(from groups: NSMutableArray) {

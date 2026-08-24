@@ -2,15 +2,17 @@
 //  AgentSessionStore.swift
 //  NotchPet — AI coding-agent task sync
 //
-//  Tracks concurrent agent sessions, arbitrates the displayed state across them,
-//  and fires completion side-effects (notification + closed-notch peek).
+//  Mirrors clawd-on-desk's model: one session per session_id, whose STATE simply follows the
+//  events (working → done → working again on continue). No "acknowledge" step — completion just
+//  shows as done, and continuing the conversation updates the same row. The notch UI is the only
+//  thing that differs from clawd.
 //
 
 import SwiftUI
 import Defaults
 
 extension Defaults.Keys {
-    /// Recently completed sessions, persisted so they survive an app restart.
+    /// Recently-seen sessions, persisted so they survive an app restart.
     static let persistedCompletedSessions = Key<[AgentSession]>("notchpet.agentsync.completedSessions", default: [])
 }
 
@@ -22,27 +24,26 @@ final class AgentSessionStore: ObservableObject {
     @Published private(set) var displayState: AgentState = .idle
     @Published private(set) var displaySession: AgentSession?
 
-    private let maxSessions = 20
+    private let maxSessions = 24
     private var cleanupTimer: Timer?
 
     private init() {
-        // Restore recently-completed sessions so they're still visible after a restart.
-        for s in Defaults[.persistedCompletedSessions] {
+        // Restore recent sessions so they survive a restart (drop legacy ones from older builds
+        // that have no transcript — their titles were folder names we can't fix).
+        for s in Defaults[.persistedCompletedSessions] where s.transcriptPath != nil {
             sessions[s.id] = s
         }
         recomputeDisplay()
-        cleanupTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+        persistRecent()
+        cleanupTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.pruneStale() }
         }
     }
 
-    /// Persist only the completed (unacknowledged) sessions, newest first, capped.
-    private func persistCompleted() {
-        let completed = sessions.values
-            .filter { $0.requiresAck }
-            .sorted { $0.updatedAt > $1.updatedAt }
-            .prefix(20)
-        Defaults[.persistedCompletedSessions] = Array(completed)
+    /// Persist the most recent sessions (by last update) so they survive a restart.
+    private func persistRecent() {
+        let recent = sessions.values.sorted { $0.updatedAt > $1.updatedAt }.prefix(maxSessions)
+        Defaults[.persistedCompletedSessions] = Array(recent)
     }
 
     /// Number of concurrently working sessions (for pet/indicator tier-up).
@@ -53,94 +54,160 @@ final class AgentSessionStore: ObservableObject {
         sessions.values.contains { [.thinking, .working, .juggling, .sweeping, .notification].contains($0.state) }
     }
 
-    /// Sessions sorted for the Agents tab: just-completed (unacked) pinned to the very
-    /// top, then everything else newest-first.
+    /// Display order: needs-you first, then actively-working, then just-done/error, then idle —
+    /// each group newest-first. One row per session.
     var orderedSessions: [AgentSession] {
         sessions.values.sorted {
-            if $0.requiresAck != $1.requiresAck { return $0.requiresAck && !$1.requiresAck }
-            return $0.updatedAt > $1.updatedAt
+            let r0 = Self.activityRank($0.state), r1 = Self.activityRank($1.state)
+            return r0 != r1 ? r0 < r1 : $0.updatedAt > $1.updatedAt
         }
     }
 
-    /// Most recent live session for an agent, used to coalesce stray events that arrive
-    /// without a usable session_id (avoids one conversation splitting into two rows).
-    private func coalesceKey(forAgent agentId: String) -> String? {
-        sessions.values
-            .filter { $0.agentId == agentId && Date().timeIntervalSince($0.updatedAt) < 120 }
-            .max(by: { $0.updatedAt < $1.updatedAt })?.id
+    /// Auto-pilot must never approve requests for background/subagent sessions.
+    func isHeadlessSession(_ id: String) -> Bool { sessions[id]?.headless == true }
+
+    private static func activityRank(_ s: AgentState) -> Int {
+        switch s {
+        case .notification: return 0
+        case .working, .thinking, .juggling, .sweeping, .carrying: return 1
+        case .attention, .error: return 2
+        case .idle, .sleeping: return 3
+        }
     }
 
     func ingest(event: String, payload: AgentEvent, agentIdOverride: String? = nil) {
         let agentId = agentIdOverride ?? payload.agentId ?? "claude-code"
-        let newState = AgentStateMachine.state(forEvent: event, payload: payload)
+        // Use the state clawd's hook already computed (it correctly classifies clarification /
+        // questionnaire as "notification", etc.); only fall back to our own event→state map when
+        // the hook didn't send a recognizable state.
+        var newState = payload.state.flatMap { AgentState(rawValue: $0) }
+            ?? AgentStateMachine.state(forEvent: event, payload: payload)
 
-        // Robust session key: use the real session_id; if missing/"default", attach to the
-        // agent's most-recent live session; otherwise fall back to agent+cwd.
-        let raw = payload.sessionId
-        let sid: String
-        if let r = raw, !r.isEmpty, r != "default" {
-            sid = r
-        } else if let recent = coalesceKey(forAgent: agentId) {
-            sid = recent
-        } else {
-            sid = "\(agentId)|\(payload.cwd ?? "default")"
+        // Interactive "ask the user" tools block for input — clawd reports them as plain "working",
+        // but they're really a clarification. Detect them reliably on PreToolUse by tool name
+        // (the hook always sends tool_name; it does NOT send the question text, only a fingerprint).
+        var clarificationMessage: String?
+        if let tool = payload.toolName {
+            if event == "PreToolUse", tool == "AskUserQuestion" || tool == "ExitPlanMode" {
+                newState = .notification
+                clarificationMessage = tool == "ExitPlanMode" ? String(localized: "Please review and approve the plan") : String(localized: "Asking you a question (AskUserQuestion)")
+            } else if agentId == "codex", newState == .notification {
+                clarificationMessage = tool == "request_user_input"
+                    ? String(format: String(localized: "Asking you a question (%@)"), "Codex")
+                    : String(localized: "Permission request")
+            }
         }
+
+        // Key strictly by session_id, exactly like clawd (its hooks always send one, "default"
+        // when absent). No "smart" coalescing — that caused both missing tasks (events merged
+        // into the wrong row) and duplicates (a cwd-keyed row plus a session_id-keyed row).
+        let sid = (payload.sessionId?.isEmpty == false) ? payload.sessionId! : "default"
 
         if event == "SessionEnd" {
             sessions[sid] = nil
             recomputeDisplay()
+            AgentSyncCoordinator.shared.dismissPermission(forSession: sid)
             return
         }
 
         var s = sessions[sid] ?? AgentSession(
-            id: sid,
-            agentId: agentId,
-            state: .idle,
-            title: "",
-            contextPercent: nil,
-            lastOutput: nil,
-            cwd: nil,
-            headless: false,
-            updatedAt: Date(),
-            requiresAck: false
+            id: sid, agentId: agentId, state: .idle, title: "",
+            contextPercent: nil, lastOutput: nil, cwd: nil, headless: false,
+            updatedAt: Date(), transcriptPath: nil, contextUsed: nil, contextLimit: nil
         )
 
         s.agentId = agentId
-        // Prefer the real conversation title computed by the hook; only fall back to the
-        // folder name when we still have nothing.
+        if let tp = payload.transcriptPath, !tp.isEmpty { s.transcriptPath = tp }
         if let t = payload.sessionTitle, !t.isEmpty { s.title = t }
         if s.title.isEmpty {
             s.title = (payload.cwd as NSString?)?.lastPathComponent ?? AgentKind.name(agentId)
         }
         if let pct = payload.contextUsage?.percent { s.contextPercent = pct }
+        if let u = payload.contextUsage?.used { s.contextUsed = u }
+        if let l = payload.contextUsage?.limit { s.contextLimit = l }
         if let cwd = payload.cwd { s.cwd = cwd }
         if let h = payload.headless { s.headless = h }
         if let out = payload.assistantLastOutput, !out.isEmpty { s.lastOutput = out }
+        if let cm = clarificationMessage { s.lastOutput = cm }
         s.state = newState
         s.updatedAt = Date()
-
-        let justCompleted = (newState == .attention)
-        if justCompleted { s.requiresAck = true }
 
         sessions[sid] = s
         enforceCapacity()
         recomputeDisplay()
 
-        if justCompleted, !s.headless {
+        // If a clarification card is showing in the notch for THIS session and the session has now
+        // moved on (e.g. the question was answered in the terminal, so the agent resumed or fired
+        // PostToolUse), dismiss the card so it doesn't linger as "already answered".
+        // Any progress event for this session that isn't itself the "needs you" state means the
+        // question is no longer pending (answered, or the agent stopped). The session-keyed guard
+        // inside dismiss makes this a no-op for unrelated sessions.
+        if newState != .notification {
+            AgentSyncCoordinator.shared.dismissClarification(forSession: sid)
+        }
+
+        // A pending in-notch PERMISSION card is a separate matter: unlike a clarification, the
+        // session state stays "working" while it's pending, so we can't key off state. The card must
+        // survive its OWN raising event — the PreToolUse that needs permission fires a concurrent
+        // "working" /event, and a terminal "Claude needs permission" Notification also arrives while
+        // it's still pending. Only a POST-resolution event means the user answered elsewhere: the
+        // tool actually ran (PostToolUse), the turn ended (Stop), a new prompt began, or the session
+        // ended. Dismiss the card on those, never on PreToolUse/Notification.
+        switch event {
+        case "PostToolUse", "Stop", "UserPromptSubmit":
+            AgentSyncCoordinator.shared.dismissPermission(forSession: sid)
+        default:
+            break
+        }
+
+        // Side effects on transitions (notification + closed-notch peek).
+        if newState == .attention, !s.headless {
             AgentSyncCoordinator.shared.handleCompletion(s)
         } else if newState == .error {
             AgentSyncCoordinator.shared.handleError(s)
         } else if newState == .notification {
-            // Agent needs the user (permission prompt / AskUserQuestion / clarification).
             AgentSyncCoordinator.shared.handleClarification(s)
         }
-        persistCompleted()
+        persistRecent()
     }
 
-    func ack(_ id: String) {
-        sessions[id]?.requiresAck = false
+    /// An interactive "ask the user" tool (AskUserQuestion / ExitPlanMode) is waiting — reflect it
+    /// as a clarification (Needs you + the question) instead of an allow/deny permission card.
+    func markClarification(sessionId: String, tool: String, question: String?) {
+        var s = sessions[sessionId] ?? AgentSession(
+            id: sessionId, agentId: "claude-code", state: .notification, title: "",
+            contextPercent: nil, lastOutput: nil, cwd: nil, headless: false,
+            updatedAt: Date(), transcriptPath: nil, contextUsed: nil, contextLimit: nil)
+        s.state = .notification
+        if let q = question, !q.isEmpty {
+            s.lastOutput = q
+        } else if (s.lastOutput?.isEmpty ?? true) {
+            s.lastOutput = String(localized: "Asking you a question (\(tool))")
+        }
+        if s.title.isEmpty { s.title = AgentKind.name(s.agentId) }
+        s.updatedAt = Date()
+        sessions[sessionId] = s
         recomputeDisplay()
-        persistCompleted()
+        AgentSyncCoordinator.shared.handleClarification(s)
+    }
+
+    /// Dismiss a single "needs you" (notification) alert — removes the row; a later event for the
+    /// same session re-creates it.
+    func dismissNotification(_ id: String) {
+        guard sessions[id]?.state == .notification else { return }
+        sessions[id] = nil
+        recomputeDisplay()
+    }
+
+    /// Clear pending "needs you" alerts — called after the user answers a permission prompt.
+    func clearNotificationAlerts() {
+        let ids = sessions.filter { $0.value.state == .notification }.map(\.key)
+        guard !ids.isEmpty else { return }
+        for id in ids {
+            sessions[id]?.state = .idle
+            sessions[id]?.updatedAt = Date()
+        }
+        recomputeDisplay()
     }
 
     func clearAll() {
@@ -151,22 +218,25 @@ final class AgentSessionStore: ObservableObject {
 
     private func enforceCapacity() {
         guard sessions.count > maxSessions else { return }
-        // Evict oldest non-ack sessions first.
-        let evictable = sessions.values
-            .filter { !$0.requiresAck }
-            .sorted { $0.updatedAt < $1.updatedAt }
-        var overflow = sessions.count - maxSessions
-        for s in evictable where overflow > 0 {
-            sessions[s.id] = nil
-            overflow -= 1
-        }
+        let overflow = sessions.count - maxSessions
+        let oldest = sessions.values.sorted { $0.updatedAt < $1.updatedAt }.prefix(overflow)
+        for s in oldest { sessions[s.id] = nil }
     }
 
     private func pruneStale() {
-        let cutoff = Date().addingTimeInterval(-300) // 5 min TTL; completed sessions are kept.
+        // Active sessions keep updating, so they stay. Dormant (idle/sleeping) ones age out fast
+        // so a continued conversation's old session_id doesn't linger next to the new active row;
+        // done/error keep a bit of history.
+        let now = Date()
         let before = sessions.count
-        sessions = sessions.filter { $0.value.updatedAt > cutoff || $0.value.requiresAck }
-        if sessions.count != before { recomputeDisplay(); persistCompleted() }
+        sessions = sessions.filter { (_, s) in
+            let age = now.timeIntervalSince(s.updatedAt)
+            switch s.state {
+            case .idle, .sleeping: return age < 180    // 3 min
+            default:               return age < 1800   // 30 min
+            }
+        }
+        if sessions.count != before { recomputeDisplay(); persistRecent() }
     }
 
     private func recomputeDisplay() {

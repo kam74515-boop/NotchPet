@@ -108,7 +108,17 @@ class BoringNotchSkyLightWindow: NSPanel {
     }
     
     private var observers: Set<AnyCancellable> = []
-    
-    override var canBecomeKey: Bool { false }
+
+    /// The notch is a passive, non-activating panel by default. We allow it to become key ONLY
+    /// while the Applications page is open, so its search field can receive keyboard input
+    /// without the notch stealing focus the rest of the time.
+    var keyEnabled = false {
+        didSet {
+            guard oldValue != keyEnabled, !keyEnabled, isKeyWindow else { return }
+            resignKey()
+        }
+    }
+
+    override var canBecomeKey: Bool { keyEnabled }
     override var canBecomeMain: Bool { false }
 }

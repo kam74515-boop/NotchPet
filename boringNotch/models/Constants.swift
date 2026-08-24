@@ -118,7 +118,11 @@ extension Defaults.Keys {
     static let selectedVisualizer = Key<CustomVisualizer?>("selectedVisualizer", default: nil)
     
     // MARK: Gestures
-    static let enableGestures = Key<Bool>("enableGestures", default: true)
+    // Off by default: the scroll-wheel open/close monitor is window-wide and can't be told
+    // apart from scrolling inside a scrollable tab page (a swipe-up and a list scroll are the
+    // same NSEvent), so it would collapse the notch while the user scrolls content. Open/close
+    // is driven by hover (+ tap) instead. Users can opt back in via Settings.
+    static let enableGestures = Key<Bool>("enableGestures", default: false)
     static let closeGestureEnabled = Key<Bool>("closeGestureEnabled", default: true)
     static let gestureSensitivity = Key<CGFloat>("gestureSensitivity", default: 200.0)
     
@@ -129,6 +133,16 @@ extension Defaults.Keys {
     static let waitInterval = Key<Double>("waitInterval", default: 3)
     static let showShuffleAndRepeat = Key<Bool>("showShuffleAndRepeat", default: false)
     static let enableLyrics = Key<Bool>("enableLyrics", default: false)
+    /// Floating synced-lyric caption below the CLOSED notch while music plays (NotchPet).
+    static let showFloatingLyrics = Key<Bool>("showFloatingLyrics", default: true)
+    /// Archived NSColor used by the floating lyric caption. Nil uses the clean white default.
+    static let floatingLyricsColorData = Key<Data?>("floatingLyricsColorData", default: nil)
+    static let floatingLyricsFontSize = Key<Double>("floatingLyricsFontSize", default: 16)
+    /// Music app launched from the album-art button when nothing is currently playing (NotchPet).
+    static let defaultMusicAppBundleID = Key<String>("defaultMusicAppBundleID", default: "com.netease.163music")
+    /// One-shot guard: NotchPet enables Launch-at-login by default on first run, but only once, so a
+    /// user who later turns it off isn't overridden on the next launch.
+    static let didApplyDefaultLaunchAtLogin = Key<Bool>("didApplyDefaultLaunchAtLogin", default: false)
     static let musicControlSlots = Key<[MusicControlButton]>(
         "musicControlSlots",
         default: MusicControlButton.defaultLayout
@@ -164,6 +178,8 @@ extension Defaults.Keys {
     
     // MARK: Shelf
     static let boringShelf = Key<Bool>("boringShelf", default: true)
+    /// Dropping a file onto the (closed) notch immediately starts AirDrop instead of shelving it.
+    static let notchDropAirDrop = Key<Bool>("notchpet.notchDropAirDrop", default: true)
     static let openShelfByDefault = Key<Bool>("openShelfByDefault", default: true)
     static let shelfTapToOpen = Key<Bool>("shelfTapToOpen", default: true)
     static let quickShareProvider = Key<String>("quickShareProvider", default: QuickShareProvider.defaultProvider.id)

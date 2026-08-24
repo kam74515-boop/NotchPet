@@ -155,6 +155,11 @@ final class NotesManager: ObservableObject {
         saveSubject.send(())
     }
 
+    /// Flush any debounced edit synchronously, used when the view or app is closing.
+    func flush() {
+        persist()
+    }
+
     /// Write the current state to Defaults right away.
     private func persist() {
         Defaults[.notesItems] = notes

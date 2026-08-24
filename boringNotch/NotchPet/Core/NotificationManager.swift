@@ -62,6 +62,30 @@ final class NotificationManager: NSObject, ObservableObject {
         center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
     }
 
+    /// Schedule a reminder at the same local time every day.
+    func scheduleDaily(id: String, title: String, body: String,
+                       hour: Int, minute: Int, sound: Bool = true) {
+        cancel(id: id)
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        if sound { content.sound = .default }
+        var components = DateComponents()
+        components.hour = hour
+        components.minute = minute
+        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
+        center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
+    }
+
+    /// Count pending requests whose identifiers share a feature prefix.
+    func pendingRequestCount(withPrefix prefix: String,
+                             completion: @escaping @MainActor @Sendable (Int) -> Void) {
+        center.getPendingNotificationRequests { requests in
+            let count = requests.lazy.filter { $0.identifier.hasPrefix(prefix) }.count
+            Task { @MainActor in completion(count) }
+        }
+    }
+
     func cancel(id: String) {
         center.removePendingNotificationRequests(withIdentifiers: [id])
     }

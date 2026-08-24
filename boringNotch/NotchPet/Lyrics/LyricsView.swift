@@ -22,23 +22,32 @@ import Defaults
 struct LyricsView: View {
     @ObservedObject var manager = MusicManager.shared
     @Default(.enableLyrics) private var enableLyrics
+    @Namespace private var albumArtNS
 
     var body: some View {
-        Group {
-            if !enableLyrics {
-                disabledState
-            } else if manager.isFetchingLyrics && manager.syncedLyrics.isEmpty && manager.currentLyrics.isEmpty {
-                fetchingState
-            } else if !manager.syncedLyrics.isEmpty {
-                syncedLyricsBody
-            } else if !manager.currentLyrics.isEmpty {
-                plainLyricsBody
-            } else {
-                emptyState
-            }
+        HStack(alignment: .top, spacing: 12) {
+            // The music player now lives on the Lyrics page (Home became a widget board).
+            MusicPlayerView(albumArtNamespace: albumArtNS, showsInlineLyrics: false)
+                .frame(width: 280)
+            lyricsContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .foregroundStyle(.white)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .foregroundStyle(.white)
+    }
+
+    @ViewBuilder
+    private var lyricsContent: some View {
+        if !enableLyrics {
+            disabledState
+        } else if manager.isFetchingLyrics && manager.syncedLyrics.isEmpty && manager.currentLyrics.isEmpty {
+            fetchingState
+        } else if !manager.syncedLyrics.isEmpty {
+            syncedLyricsBody
+        } else if !manager.currentLyrics.isEmpty {
+            plainLyricsBody
+        } else {
+            emptyState
+        }
     }
 
     // MARK: - Synced (time-stamped) lyrics

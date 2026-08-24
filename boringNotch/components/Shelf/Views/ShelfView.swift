@@ -7,6 +7,7 @@
 
 import SwiftUI
 import AppKit
+import Defaults
 
 struct ShelfView: View {
     @EnvironmentObject var vm: BoringViewModel
@@ -35,7 +36,15 @@ struct ShelfView: View {
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         guard !selection.isDragging else { return false }
         vm.dropEvent = true
-        ShelfStateViewModel.shared.load(providers)
+        // Dragging toward the notch auto-opens the shelf, so the drop usually lands here. When
+        // "Drop on notch starts AirDrop" is on, AirDrop instead of shelving.
+        if Defaults[.notchDropAirDrop] {
+            Task { @MainActor in
+                await QuickShareService.shared.shareDroppedFiles(providers, using: QuickShareProvider.defaultProvider, from: nil)
+            }
+        } else {
+            ShelfStateViewModel.shared.load(providers)
+        }
         return true
     }
     

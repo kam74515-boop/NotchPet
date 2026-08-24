@@ -16,12 +16,14 @@ struct TabButton: View {
     var body: some View {
         Button(action: onClick) {
             Image(systemName: icon)
-                .imageScale(.medium)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 2)
+                .imageScale(.medium)          // normal icon size (was shrunk to .small)
+                .frame(width: 28, height: 26)  // compact footprint so 6+6 still fit around the notch
                 .contentShape(Capsule())
         }
         .buttonStyle(PlainButtonStyle())
+        .help(label)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 

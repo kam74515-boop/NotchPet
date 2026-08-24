@@ -53,8 +53,10 @@ struct TabSelectionView: View {
                 .frame(height: 26)
                 .foregroundStyle(tab.view == coordinator.currentView ? .white : .gray)
                 .background {
-                    Capsule()
+                    // A true circle (not a Capsule on a 28×26 frame, which renders as an oval).
+                    Circle()
                         .fill(tab.view == coordinator.currentView ? Color(nsColor: .secondarySystemFill) : Color.clear)
+                        .frame(width: 26, height: 26)
                 }
             }
         }
